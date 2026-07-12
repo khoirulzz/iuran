@@ -52,12 +52,13 @@ fun OfficerResidentDetailScreen(
         val participant = repository.getParticipants(activityId)
             .firstOrNull { it.residentId == residentId }
 
-        if (participant != null) {
-            summary = repository.getResidentSummary(activityId, participant)
+        repository.getTransactionsFlow(activityId, residentId).collect { txs ->
+            transactions = txs
+            if (participant != null) {
+                summary = repository.getResidentSummary(activityId, participant)
+            }
+            isLoading = false
         }
-
-        transactions = repository.getTransactions(activityId, residentId)
-        isLoading = false
     }
 
     Scaffold(

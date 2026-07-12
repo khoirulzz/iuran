@@ -40,8 +40,10 @@ fun AdminDashboardScreen(
 
     LaunchedEffect(Unit) {
         isLoading = true
-        activities = repository.getActivities()
-        isLoading = false
+        repository.getActivitiesFlow().collect { list ->
+            activities = list
+            isLoading = false
+        }
     }
 
     Scaffold(
@@ -59,12 +61,7 @@ fun AdminDashboardScreen(
                         label = { Text(label, style = MaterialTheme.typography.labelSmall) },
                         selected = selectedTab == idx,
                         onClick = {
-                            if (idx == 4) {
-                                coroutineScope.launch {
-                                    sessionStore.clearSession()
-                                    navController.navigate("login") { popUpTo(0) { inclusive = true } }
-                                }
-                            } else selectedTab = idx
+                            selectedTab = idx
                         },
                         colors = NavigationBarItemDefaults.colors(
                             selectedIconColor = AdminPrimary,
@@ -96,7 +93,16 @@ fun AdminDashboardScreen(
             1 -> AdminActivitiesTab(activities, navController, paddingValues)
             2 -> AdminResidentsScreen(navController, repository, paddingValues)
             3 -> AdminReportsScreen(navController, repository, paddingValues)
-            4 -> {}
+            4 -> AccountScreen(
+                primaryColor = AdminPrimary,
+                paddingValues = paddingValues,
+                onLogout = {
+                    coroutineScope.launch {
+                        sessionStore.clearSession()
+                        navController.navigate("login") { popUpTo(0) { inclusive = true } }
+                    }
+                }
+            )
         }
     }
 }

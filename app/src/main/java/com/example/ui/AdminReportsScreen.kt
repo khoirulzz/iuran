@@ -41,14 +41,18 @@ fun AdminReportsScreen(
 
     LaunchedEffect(Unit) {
         isLoading = true
-        activities = repository.getActivities().filter { it.status == ActivityStatus.ACTIVE || it.status == ActivityStatus.COMPLETED }
-        summaries = activities.map { repository.getActivitySummary(it) }
-        isLoading = false
+        repository.getActivitiesFlow().collect { acts ->
+            activities = acts.filter { it.status == ActivityStatus.ACTIVE || it.status == ActivityStatus.COMPLETED }
+            summaries = activities.map { repository.getActivitySummary(it) }
+            isLoading = false
+        }
     }
 
     LaunchedEffect(selectedActivityId) {
         if (selectedActivityId != null) {
-            transactions = repository.getAllTransactions(selectedActivityId)
+            repository.getAllTransactionsFlow(selectedActivityId).collect { txs ->
+                transactions = txs
+            }
         }
     }
 

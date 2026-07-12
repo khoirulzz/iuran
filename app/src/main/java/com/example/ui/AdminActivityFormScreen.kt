@@ -1,6 +1,7 @@
 package com.example.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -47,11 +48,14 @@ fun AdminActivityFormScreen(
     var startDateStr by remember { mutableStateOf("") }
     var deadlineDateStr by remember { mutableStateOf("") }
 
+    var existingActivity by remember { mutableStateOf<IuranActivity?>(null) }
+
     // Load existing if edit
     LaunchedEffect(activityId) {
         if (!isNew && activityId != null) {
             val act = repository.getActivityById(activityId)
             if (act != null) {
+                existingActivity = act
                 name = act.name
                 description = act.description
                 targetAmount = act.defaultTargetAmount.toString()
@@ -129,25 +133,74 @@ fun AdminActivityFormScreen(
 
             item {
                 FormSection(title = "Tanggal & Target") {
+                    val context = androidx.compose.ui.platform.LocalContext.current
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        OutlinedTextField(
-                            value = startDateStr,
-                            onValueChange = { startDateStr = it },
-                            label = { Text("Tanggal Mulai *") },
-                            placeholder = { Text("dd/MM/yyyy") },
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(12.dp),
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
-                        )
-                        OutlinedTextField(
-                            value = deadlineDateStr,
-                            onValueChange = { deadlineDateStr = it },
-                            label = { Text("Tenggat *") },
-                            placeholder = { Text("dd/MM/yyyy") },
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(12.dp),
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
-                        )
+                        Box(modifier = Modifier.weight(1f).clickable {
+                            val cal = Calendar.getInstance()
+                            val dialog = android.app.DatePickerDialog(
+                                context,
+                                { _, year, month, dayOfMonth ->
+                                    startDateStr = String.format(Locale("id", "ID"), "%02d/%02d/%04d", dayOfMonth, month + 1, year)
+                                },
+                                cal.get(Calendar.YEAR),
+                                cal.get(Calendar.MONTH),
+                                cal.get(Calendar.DAY_OF_MONTH)
+                            )
+                            dialog.datePicker.minDate = cal.timeInMillis
+                            dialog.show()
+                        }) {
+                            OutlinedTextField(
+                                value = startDateStr,
+                                onValueChange = { },
+                                label = { Text("Tanggal Mulai *") },
+                                placeholder = { Text("dd/MM/yyyy") },
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(12.dp),
+                                readOnly = true,
+                                enabled = false,
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    disabledTextColor = MaterialTheme.colorScheme.onSurface,
+                                    disabledBorderColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    disabledLeadingIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    disabledTrailingIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    disabledLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    disabledPlaceholderColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            )
+                        }
+                        Box(modifier = Modifier.weight(1f).clickable {
+                            val cal = Calendar.getInstance()
+                            val dialog = android.app.DatePickerDialog(
+                                context,
+                                { _, year, month, dayOfMonth ->
+                                    deadlineDateStr = String.format(Locale("id", "ID"), "%02d/%02d/%04d", dayOfMonth, month + 1, year)
+                                },
+                                cal.get(Calendar.YEAR),
+                                cal.get(Calendar.MONTH),
+                                cal.get(Calendar.DAY_OF_MONTH)
+                            )
+                            dialog.datePicker.minDate = cal.timeInMillis
+                            dialog.show()
+                        }) {
+                            OutlinedTextField(
+                                value = deadlineDateStr,
+                                onValueChange = { },
+                                label = { Text("Tenggat *") },
+                                placeholder = { Text("dd/MM/yyyy") },
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(12.dp),
+                                readOnly = true,
+                                enabled = false,
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    disabledTextColor = MaterialTheme.colorScheme.onSurface,
+                                    disabledBorderColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    disabledLeadingIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    disabledTrailingIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    disabledLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    disabledPlaceholderColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            )
+                        }
                     }
                     Spacer(Modifier.height(12.dp))
                     OutlinedTextField(
@@ -239,7 +292,15 @@ fun AdminActivityFormScreen(
                                 errorMsg = null
                                 coroutineScope.launch {
                                     isSaving = true
-                                    val activity = IuranActivity(
+                                    val activity = existingActivity?.copy(
+                                        name = name.trim(),
+                                        description = description.trim(),
+                                        startAtEpochMs = startMs,
+                                        deadlineAtEpochMs = deadlineMs,
+                                        defaultTargetAmount = target,
+                                        allowLatePayment = allowLatePayment,
+                                        status = status
+                                    ) ?: IuranActivity(
                                         id = if (isNew) "" else (activityId ?: ""),
                                         name = name.trim(),
                                         description = description.trim(),

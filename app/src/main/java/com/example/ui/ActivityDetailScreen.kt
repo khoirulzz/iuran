@@ -1,3 +1,4 @@
+@file:OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 package com.example.ui
 
 import androidx.compose.foundation.background
@@ -23,6 +24,7 @@ import com.example.domain.*
 import com.example.ui.theme.*
 import java.text.NumberFormat
 import java.util.Locale
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -41,9 +43,10 @@ fun ActivityDetailScreen(
     LaunchedEffect(activityId) {
         isLoading = true
         activity = repository.getActivityById(activityId)
-        val participants = repository.getParticipants(activityId)
-        summaries = participants.mapNotNull { repository.getResidentSummary(activityId, it) }
-        isLoading = false
+        repository.getParticipantsFlow(activityId).collect { participants ->
+            summaries = participants.mapNotNull { repository.getResidentSummary(activityId, it) }
+            isLoading = false
+        }
     }
 
     val filtered = summaries.filter { s ->
@@ -53,6 +56,9 @@ fun ActivityDetailScreen(
             s.resident.houseNumber.lowercase().contains(q) ||
             s.resident.block.lowercase().contains(q)
     }
+
+    var showDeleteDialog by remember { mutableStateOf(false) }
+    var isDeleting by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -68,6 +74,14 @@ fun ActivityDetailScreen(
                 navigationIcon = {
                     IconButton(onClick = { navController.popBackStack() }) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, "Kembali", tint = Color.White)
+                    }
+                },
+                actions = {
+                    IconButton(onClick = { navController.navigate("admin_activity_form/$activityId") }) {
+                        Icon(Icons.Default.Edit, "Edit", tint = Color.White)
+                    }
+                    IconButton(onClick = { showDeleteDialog = true }) {
+                        Icon(Icons.Default.Delete, "Delete", tint = Color.White)
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = AdminPrimary)
@@ -186,6 +200,43 @@ fun ActivityDetailScreen(
                 }
             }
             item { Spacer(Modifier.height(80.dp)) }
+        }
+
+        if (showDeleteDialog) {
+            val coroutineScope = rememberCoroutineScope()
+            AlertDialog(
+                onDismissRequest = { if (!isDeleting) showDeleteDialog = false },
+                title = { Text("Hapus Kegiatan") },
+                text = { Text("Apakah Anda yakin ingin menghapus kegiatan ini? Semua data yang terkait dengan kegiatan ini akan dihapus. Aksi ini tidak dapat dibatalkan.") },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            coroutineScope.launch {
+                                isDeleting = true
+                                repository.deleteActivity(activityId)
+                                isDeleting = false
+                                showDeleteDialog = false
+                                navController.popBackStack()
+                            }
+                        },
+                        enabled = !isDeleting
+                    ) {
+                        if (isDeleting) {
+                            CircularProgressIndicator(modifier = Modifier.size(16.dp))
+                        } else {
+                            Text("Hapus", color = Color.Red)
+                        }
+                    }
+                },
+                dismissButton = {
+                    TextButton(
+                        onClick = { showDeleteDialog = false },
+                        enabled = !isDeleting
+                    ) {
+                        Text("Batal")
+                    }
+                }
+            )
         }
     }
 }

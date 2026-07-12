@@ -1,3 +1,4 @@
+@file:OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 package com.example.ui
 
 import androidx.compose.foundation.background
@@ -45,9 +46,10 @@ fun OfficerResidentsScreen(
 
     LaunchedEffect(activityId) {
         isLoading = true
-        val participants = repository.getParticipants(activityId)
-        summaries = participants.mapNotNull { repository.getResidentSummary(activityId, it) }
-        isLoading = false
+        repository.getParticipantsFlow(activityId).collect { participants ->
+            summaries = participants.mapNotNull { repository.getResidentSummary(activityId, it) }
+            isLoading = false
+        }
     }
 
     val filtered = summaries.filter { s ->

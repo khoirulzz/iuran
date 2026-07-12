@@ -46,8 +46,10 @@ fun OfficerDashboardScreen(
             if (id != null) {
                 officerId = id
                 isLoading = true
-                activities = repository.getActiveActivitiesForOfficer(id)
-                isLoading = false
+                repository.getActiveActivitiesForOfficerFlow(id).collect { list ->
+                    activities = list
+                    isLoading = false
+                }
             }
         }
     }
@@ -66,12 +68,7 @@ fun OfficerDashboardScreen(
                         label = { Text(label, style = MaterialTheme.typography.labelSmall) },
                         selected = selectedTab == idx,
                         onClick = {
-                            if (idx == 3) {
-                                coroutineScope.launch {
-                                    sessionStore.clearSession()
-                                    navController.navigate("login") { popUpTo(0) { inclusive = true } }
-                                }
-                            } else selectedTab = idx
+                            selectedTab = idx
                         },
                         colors = NavigationBarItemDefaults.colors(
                             selectedIconColor = OfficerPrimary,
@@ -95,7 +92,16 @@ fun OfficerDashboardScreen(
             )
             1 -> OfficerResidentsTab(officerId, activities, navController, repository, paddingValues)
             2 -> OfficerHistoryScreen(officerId, repository, paddingValues)
-            3 -> {}
+            3 -> AccountScreen(
+                primaryColor = OfficerPrimary,
+                paddingValues = paddingValues,
+                onLogout = {
+                    coroutineScope.launch {
+                        sessionStore.clearSession()
+                        navController.navigate("login") { popUpTo(0) { inclusive = true } }
+                    }
+                }
+            )
         }
     }
 }
