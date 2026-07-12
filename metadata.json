@@ -1,0 +1,6 @@
+{
+  "name": "Gempala Iuran",
+  "description": "Aplikasi pencatatan iuran kegiatan warga",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

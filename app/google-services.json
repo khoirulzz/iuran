@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "142385191936",
+    "project_id": "iuran-9aba4",
+    "storage_bucket": "iuran-9aba4.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:142385191936:android:457f8ac74dda2d4402cce5",
+        "android_client_info": {
+          "package_name": "com.iuran.gempala"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyD66ZtLU2MMk2AGV5n6hOtFIvfbAodKkvU"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
