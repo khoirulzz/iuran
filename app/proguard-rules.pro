@@ -19,3 +19,18 @@
 # If you keep the line number information, uncomment this to
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
+
+-keepattributes *Annotation*,Signature,InnerClasses,EnclosingMethod,SourceFile,LineNumberTable
+
+# Keep Firestore models for reflection
+-keep class com.example.domain.** { *; }
+
+# Keep Moshi models
+-keepclassmembers class * {
+    @com.squareup.moshi.* <methods>;
+    @com.squareup.moshi.* <fields>;
+}
+
+-dontwarn kotlinx.coroutines.**
+-dontwarn okhttp3.**
+-dontwarn okio.**
