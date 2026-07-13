@@ -212,13 +212,13 @@ private fun OfficerHomeContent(
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            "Semua data tersinkron",
+                            "Mode Offline-First Aktif",
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Bold,
                             color = OfficerPrimary
                         )
                         Text(
-                            "Firestore offline persistence aktif · Ketuk untuk refresh",
+                            "Semua transaksi tersimpan aman · Ketuk untuk perbarui data",
                             style = MaterialTheme.typography.bodySmall,
                             color = TextSecondary
                         )
@@ -282,38 +282,6 @@ private fun OfficerHomeContent(
                 )
                 Spacer(Modifier.height(4.dp))
             }
-        }
-
-        // Menu Cepat
-        item {
-            Spacer(Modifier.height(16.dp))
-            Text(
-                "Menu Cepat",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                color = TextPrimary,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
-            )
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.SpaceEvenly
-            ) {
-                OfficerMenuIcon(Icons.Default.People, "Daftar Warga") {
-                    if (activities.isNotEmpty()) navController.navigate("officer_residents/${activities.first().id}")
-                }
-                OfficerMenuIcon(Icons.Default.AddCircle, "Input Bayar") {
-                    if (activities.isNotEmpty()) navController.navigate("officer_residents/${activities.first().id}")
-                }
-                OfficerMenuIcon(Icons.Default.History, "Riwayat") {
-                    // Handled by parent — biarkan user ganti tab secara manual
-                }
-                OfficerMenuIcon(Icons.Default.Sync, "Sinkronisasi") {
-                    onSyncClick()
-                }
-            }
-            Spacer(Modifier.height(16.dp))
         }
 
         // Motivasi banner

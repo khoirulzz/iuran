@@ -186,12 +186,52 @@ private fun AdminDashboardContent(
             }
         }
 
+        // Offline Mode / Sync Banner
+        item {
+            val context = androidx.compose.ui.platform.LocalContext.current
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 12.dp)
+                    .clickable {
+                        android.widget.Toast.makeText(
+                            context,
+                            "Penyimpanan Offline Aktif. Data tersimpan aman & otomatis disinkronkan ke server saat online.",
+                            android.widget.Toast.LENGTH_LONG
+                        ).show()
+                    },
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = AppSurface),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+            ) {
+                Row(
+                    modifier = Modifier.padding(16.dp).fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            "Mode Offline-First Aktif",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = AdminPrimary
+                        )
+                        Text(
+                            "Seluruh transaksi tersimpan lokal · Ketuk untuk info sinkronisasi",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextSecondary
+                        )
+                    }
+                    Icon(Icons.Default.CloudDone, null, tint = AdminPrimary, modifier = Modifier.size(26.dp))
+                }
+            }
+        }
+
         // Summary Card
         item {
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(16.dp),
+                    .padding(horizontal = 16.dp, vertical = 4.dp),
                 shape = RoundedCornerShape(20.dp),
                 colors = CardDefaults.cardColors(containerColor = AppSurface),
                 elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
@@ -225,7 +265,7 @@ private fun AdminDashboardContent(
         // Kegiatan Aktif
         item {
             Row(
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
@@ -261,7 +301,7 @@ private fun AdminDashboardContent(
                     )
                     Spacer(Modifier.height(16.dp))
                     Text(
-                        "Belum ada kegiatan iuran",
+                        "Belum ada kegiatan iuran yang aktif",
                         style = MaterialTheme.typography.bodyLarge,
                         color = TextSecondary
                     )
@@ -273,7 +313,7 @@ private fun AdminDashboardContent(
                 }
             }
         } else {
-            items(activeActivities.take(3)) { activity ->
+            items(activeActivities.take(5)) { activity ->
                 AdminActivityCard(
                     activity = activity,
                     onClick = { navController.navigate("admin_activity_detail/${activity.id}") }
@@ -281,32 +321,7 @@ private fun AdminDashboardContent(
                 Spacer(Modifier.height(4.dp))
             }
         }
-
-        // Menu Admin Cepat
-        item {
-            Spacer(Modifier.height(16.dp))
-            Text(
-                "Menu Admin",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                color = TextPrimary,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
-            )
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.SpaceEvenly
-            ) {
-                AdminMenuIcon(Icons.Default.Event, "Kegiatan") { onTabChange(1) }
-                AdminMenuIcon(Icons.Default.People, "Warga") { onTabChange(2) }
-                AdminMenuIcon(Icons.Default.SupervisedUserCircle, "Petugas") {
-                    navController.navigate("admin_officers")
-                }
-                AdminMenuIcon(Icons.Default.Assessment, "Laporan") { onTabChange(3) }
-            }
-            Spacer(Modifier.height(16.dp))
-        }
+        item { Spacer(Modifier.height(16.dp)) }
     }
 }
 

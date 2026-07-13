@@ -167,6 +167,55 @@ fun AccountScreen(
                 )
             }
         }
+
+        item { Spacer(Modifier.height(16.dp)) }
+
+        // Informasi Aplikasi & Pengembang
+        item {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = AppSurface),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(18.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        "Gempala Iuran · Offline-First Edition",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = primaryColor
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        "Versi v1.0.0 (Production Release)",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondary
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    HorizontalDivider(color = BorderColor)
+                    Spacer(Modifier.height(10.dp))
+                    Text(
+                        "Pengembang Aplikasi",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = TextDisabled
+                    )
+                    Text(
+                        "Muhamad Khoirul Ulum",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = TextPrimary
+                    )
+                }
+            }
+        }
+
         item { Spacer(Modifier.height(80.dp)) }
     }
 }

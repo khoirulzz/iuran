@@ -22,9 +22,13 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import kotlinx.coroutines.launch
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import com.example.data.AppRepository
 import com.example.domain.Resident
 import com.example.ui.theme.*
+import java.io.BufferedReader
+import java.io.InputStreamReader
 
 // =============== LAYAR DAFTAR WARGA (dipakai di tab Admin) ===============
 @OptIn(ExperimentalMaterial3Api::class)
@@ -34,6 +38,7 @@ fun AdminResidentsScreen(
     repository: AppRepository,
     paddingValues: PaddingValues = PaddingValues(0.dp)
 ) {
+    val context = androidx.compose.ui.platform.LocalContext.current
     var residents by remember { mutableStateOf<List<Resident>>(emptyList()) }
     var searchQuery by remember { mutableStateOf("") }
     var showInactive by remember { mutableStateOf(false) }
@@ -41,6 +46,53 @@ fun AdminResidentsScreen(
     var showFormDialog by remember { mutableStateOf(false) }
     var editingResident by remember { mutableStateOf<Resident?>(null) }
     val coroutineScope = rememberCoroutineScope()
+
+    val csvLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) {
+            coroutineScope.launch {
+                try {
+                    val inputStream = context.contentResolver.openInputStream(uri)
+                    val reader = BufferedReader(InputStreamReader(inputStream))
+                    var countImported = 0
+                    var isHeader = true
+                    reader.forEachLine { line ->
+                        if (line.isNotBlank()) {
+                            if (isHeader && line.lowercase().contains("nama")) {
+                                isHeader = false
+                            } else {
+                                isHeader = false
+                                val cols = line.split(",")
+                                val nama = cols.getOrNull(0)?.trim() ?: ""
+                                if (nama.isNotEmpty()) {
+                                    val noRumah = cols.getOrNull(1)?.trim() ?: ""
+                                    val blok = cols.getOrNull(2)?.trim() ?: ""
+                                    val alamat = cols.getOrNull(3)?.trim() ?: ""
+                                    val telepon = cols.getOrNull(4)?.trim() ?: ""
+                                    val catatan = cols.getOrNull(5)?.trim() ?: ""
+                                    repository.saveResident(
+                                        Resident(
+                                            name = nama,
+                                            houseNumber = noRumah,
+                                            block = blok,
+                                            address = alamat,
+                                            phone = telepon,
+                                            notes = catatan
+                                        )
+                                    )
+                                    countImported++
+                                }
+                            }
+                        }
+                    }
+                    reader.close()
+                    residents = repository.getResidents(activeOnly = false)
+                    android.widget.Toast.makeText(context, "Berhasil mengimpor $countImported warga dari file CSV.", android.widget.Toast.LENGTH_LONG).show()
+                } catch (e: Exception) {
+                    android.widget.Toast.makeText(context, "Gagal mengimpor CSV: ${e.message}", android.widget.Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+    }
 
     fun loadResidents() {
         coroutineScope.launch {
@@ -124,6 +176,31 @@ fun AdminResidentsScreen(
                             style = MaterialTheme.typography.labelMedium,
                             color = TextSecondary
                         )
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = { downloadTemplateCsv(context) },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Icon(Icons.Default.Download, null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("Template CSV", style = MaterialTheme.typography.labelMedium)
+                        }
+                        Button(
+                            onClick = { csvLauncher.launch("*/*") },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(10.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = AdminPrimary)
+                        ) {
+                            Icon(Icons.Default.UploadFile, null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("Import CSV", style = MaterialTheme.typography.labelMedium)
+                        }
                     }
                 }
             }
@@ -362,4 +439,15 @@ fun ResidentFormDialog(
             TextButton(onClick = onDismiss) { Text("Batal", color = TextSecondary) }
         }
     )
+}
+
+private fun downloadTemplateCsv(context: android.content.Context) {
+    try {
+        val downloadsDir = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS)
+        val file = java.io.File(downloadsDir, "template_data_warga.csv")
+        file.writeText("Nama Lengkap,No. Rumah,Blok,Alamat,No. Telepon,Catatan\nAhmad Subagja,12,A1,Jl. Melati No. 12,081234567890,Warga Aktif\nSiti Aminah,5,B2,Jl. Mawar No. 5,081987654321,\n")
+        android.widget.Toast.makeText(context, "Template CSV berhasil disimpan ke Download/template_data_warga.csv", android.widget.Toast.LENGTH_LONG).show()
+    } catch (e: Exception) {
+        android.widget.Toast.makeText(context, "Gagal mengunduh template: ${e.message}", android.widget.Toast.LENGTH_LONG).show()
+    }
 }

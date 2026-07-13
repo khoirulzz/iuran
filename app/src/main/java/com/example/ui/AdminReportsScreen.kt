@@ -278,7 +278,98 @@ private fun ActivityReportCard(
                     }
                 }
             }
+
+            Spacer(Modifier.height(12.dp))
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                val context = androidx.compose.ui.platform.LocalContext.current
+                OutlinedButton(
+                    onClick = { exportActivityReportToPdf(context, summary, transactions) },
+                    shape = RoundedCornerShape(10.dp),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                ) {
+                    Icon(Icons.Default.PictureAsPdf, null, modifier = Modifier.size(16.dp), tint = AdminPrimary)
+                    Spacer(Modifier.width(6.dp))
+                    Text("Unduh Laporan PDF", style = MaterialTheme.typography.labelMedium, color = AdminPrimary)
+                }
+            }
         }
+    }
+}
+
+private fun exportActivityReportToPdf(
+    context: android.content.Context,
+    summary: ActivitySummary,
+    transactions: List<PaymentTransaction>
+) {
+    try {
+        val pdfDoc = android.graphics.pdf.PdfDocument()
+        val pageInfo = android.graphics.pdf.PdfDocument.PageInfo.Builder(595, 842, 1).create()
+        val page = pdfDoc.startPage(pageInfo)
+        val canvas = page.canvas
+        val paint = android.graphics.Paint()
+        val titlePaint = android.graphics.Paint()
+        val fmt = NumberFormat.getNumberInstance(Locale("id", "ID"))
+
+        titlePaint.color = android.graphics.Color.rgb(30, 41, 59)
+        titlePaint.textSize = 16f
+        titlePaint.isFakeBoldText = true
+
+        paint.color = android.graphics.Color.rgb(51, 65, 85)
+        paint.textSize = 11f
+
+        var yPos = 45f
+        canvas.drawText("LAPORAN KEGIATAN IURAN GEMPALA", 40f, yPos, titlePaint)
+        yPos += 25f
+
+        paint.textSize = 13f
+        paint.isFakeBoldText = true
+        canvas.drawText("Kegiatan: ${summary.activity.name}", 40f, yPos, paint)
+        yPos += 20f
+
+        paint.textSize = 11f
+        paint.isFakeBoldText = false
+        canvas.drawText("Total Terkumpul: Rp ${fmt.format(summary.totalCollected)} dari Target Rp ${fmt.format(summary.totalTarget)} (${summary.progressPercent}%)", 40f, yPos, paint)
+        yPos += 18f
+        canvas.drawText("Lunas: ${summary.countPaid} Warga | Mencicil: ${summary.countPartial} Warga | Belum Bayar: ${summary.countUnpaid} Warga", 40f, yPos, paint)
+        yPos += 30f
+
+        paint.isFakeBoldText = true
+        canvas.drawText("Kode Transaksi", 40f, yPos, paint)
+        canvas.drawText("Nominal", 250f, yPos, paint)
+        canvas.drawText("Metode", 370f, yPos, paint)
+        canvas.drawText("Tanggal", 460f, yPos, paint)
+        yPos += 16f
+        paint.isFakeBoldText = false
+
+        val sdf = java.text.SimpleDateFormat("dd/MM/yyyy", Locale("id", "ID"))
+        val listToDraw = if (transactions.isNotEmpty()) transactions.take(35) else emptyList()
+        if (listToDraw.isEmpty()) {
+            canvas.drawText("- Belum ada rincian transaksi tersimpan -", 40f, yPos, paint)
+        } else {
+            for (tx in listToDraw) {
+                if (yPos > 780f) break
+                val txLabel = if (tx.transactionId.length > 20) tx.transactionId.take(20) + "..." else tx.transactionId
+                canvas.drawText(txLabel, 40f, yPos, paint)
+                canvas.drawText("Rp ${fmt.format(tx.amount)}", 250f, yPos, paint)
+                canvas.drawText(tx.paymentMethod.name, 370f, yPos, paint)
+                canvas.drawText(sdf.format(java.util.Date(tx.paidAtDeviceEpochMs)), 460f, yPos, paint)
+                yPos += 16f
+            }
+        }
+
+        pdfDoc.finishPage(page)
+
+        val downloadsDir = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS)
+        val fileName = "Laporan_Iuran_${summary.activity.name.replace(Regex("[^A-Za-z0-9]"), "_")}.pdf"
+        val file = java.io.File(downloadsDir, fileName)
+        val out = java.io.FileOutputStream(file)
+        pdfDoc.writeTo(out)
+        pdfDoc.close()
+        out.close()
+
+        android.widget.Toast.makeText(context, "Laporan PDF berhasil diunduh ke folder Download: ${fileName}", android.widget.Toast.LENGTH_LONG).show()
+    } catch (e: Exception) {
+        android.widget.Toast.makeText(context, "Gagal mengunduh PDF: ${e.message}", android.widget.Toast.LENGTH_LONG).show()
     }
 }
 

@@ -290,8 +290,8 @@ fun PaymentScreen(
             item {
                 Button(
                     onClick = {
-                        val amt = amountText.toLongOrNull()
-                        if (amt != null && amt > remainingAmount && remainingAmount > 0) {
+                        val amt = amountText.replace(".", "").replace(",", "").toLongOrNull()
+                        if (amt != null && amt > remainingAmount) {
                             showOverpayConfirm = true
                         } else {
                             doSavePayment()
@@ -321,14 +321,23 @@ fun PaymentScreen(
             onDismissRequest = { showOverpayConfirm = false },
             containerColor = AppSurface,
             shape = RoundedCornerShape(20.dp),
-            title = { Text("Konfirmasi Pembayaran", fontWeight = FontWeight.Bold, color = AccentAmber) },
+            title = { Text("Konfirmasi Kelebihan Bayar", fontWeight = FontWeight.Bold, color = AccentAmber) },
             text = {
-                val amt = amountText.toLongOrNull() ?: 0L
-                Text(
-                    "Nominal Rp ${fmt.format(amt)} melebihi sisa tagihan Rp ${fmt.format(remainingAmount)}. " +
-                    "Selisih Rp ${fmt.format(amt - remainingAmount)} akan tercatat sebagai kelebihan bayar. Lanjutkan?",
-                    color = TextPrimary
-                )
+                val amt = amountText.replace(".", "").replace(",", "").toLongOrNull() ?: 0L
+                val overpay = (amt - remainingAmount).coerceAtLeast(0L)
+                val sisaText = if (remainingAmount > 0) "Rp ${fmt.format(remainingAmount)}" else "Rp 0 (Lunas)"
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        "Nominal pembayaran Rp ${fmt.format(amt)} melebihi sisa tagihan ($sisaText).",
+                        color = TextPrimary
+                    )
+                    Text(
+                        "Selisih sebesar Rp ${fmt.format(overpay)} akan diproses & tercatat resmi sebagai kelebihan bayar warga.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = OfficerPrimary
+                    )
+                }
             },
             confirmButton = {
                 Button(
