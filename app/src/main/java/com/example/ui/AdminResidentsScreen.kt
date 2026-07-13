@@ -53,9 +53,11 @@ fun AdminResidentsScreen(
                 try {
                     val inputStream = context.contentResolver.openInputStream(uri)
                     val reader = BufferedReader(InputStreamReader(inputStream))
+                    val lines = reader.readLines()
+                    reader.close()
                     var countImported = 0
                     var isHeader = true
-                    reader.forEachLine { line ->
+                    for (line in lines) {
                         if (line.isNotBlank()) {
                             if (isHeader && line.lowercase().contains("nama")) {
                                 isHeader = false
@@ -84,7 +86,6 @@ fun AdminResidentsScreen(
                             }
                         }
                     }
-                    reader.close()
                     residents = repository.getResidents(activeOnly = false)
                     android.widget.Toast.makeText(context, "Berhasil mengimpor $countImported warga dari file CSV.", android.widget.Toast.LENGTH_LONG).show()
                 } catch (e: Exception) {
