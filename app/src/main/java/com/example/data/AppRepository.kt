@@ -9,9 +9,6 @@ import java.text.SimpleDateFormat
 import java.util.*
 import javax.crypto.SecretKeyFactory
 import javax.crypto.spec.PBEKeySpec
-import kotlinx.coroutines.channels.awaitClose
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.callbackFlow
 
 class AppRepository(
     private val firestore: FirebaseFirestore,
@@ -49,30 +46,13 @@ class AppRepository(
 
     // ===================== RESIDENTS =====================
 
-    fun getResidentsFlow(activeOnly: Boolean = false): Flow<List<Resident>> = callbackFlow {
-        val listener = firestore.collection("residents")
-            .orderBy("nameNormalized")
-            .addSnapshotListener { snapshot, error ->
-                if (error != null) {
-                    close(error)
-                    return@addSnapshotListener
-                }
-                if (snapshot != null) {
-                    val list = snapshot.documents.mapNotNull { doc ->
-                        doc.toObject(Resident::class.java)?.copy(id = doc.id)
-                    }.filter { if (activeOnly) it.isActive else true }
-                    trySend(list)
-                }
-            }
-        awaitClose { listener.remove() }
-    }
-
     suspend fun getResidents(activeOnly: Boolean = false): List<Resident> = runCatching {
-        var query = firestore.collection("residents").orderBy("nameNormalized")
-        val snapshot = query.get().await()
+        val snapshot = firestore.collection("residents").get().await()
         snapshot.documents.mapNotNull { doc ->
             doc.toObject(Resident::class.java)?.copy(id = doc.id)
-        }.filter { if (activeOnly) it.isActive else true }
+        }
+        .filter { if (activeOnly) it.isActive else true }
+        .sortedBy { it.nameNormalized }
     }.getOrDefault(emptyList())
 
     suspend fun getResident(residentId: String): Resident? = runCatching {
@@ -83,21 +63,33 @@ class AppRepository(
     suspend fun saveResident(resident: Resident): Result<String> = runCatching {
         val now = System.currentTimeMillis()
         val normalized = resident.name.trim().lowercase()
+        val residentId: String
         if (resident.id.isEmpty()) {
             val ref = firestore.collection("residents").document()
+            residentId = ref.id
             ref.set(resident.copy(
-                id = ref.id,
+                id = residentId,
                 nameNormalized = normalized,
                 createdAt = now,
                 updatedAt = now
             )).await()
-            ref.id
         } else {
-            firestore.collection("residents").document(resident.id)
+            residentId = resident.id
+            firestore.collection("residents").document(residentId)
                 .set(resident.copy(nameNormalized = normalized, updatedAt = now))
                 .await()
-            resident.id
         }
+
+        if (resident.isActive) {
+            val activeActivities = getActivities().filter { it.status == ActivityStatus.ACTIVE }
+            for (act in activeActivities) {
+                val existing = getParticipants(act.id).map { it.residentId }.toSet()
+                if (residentId !in existing) {
+                    upsertParticipants(act.id, listOf(residentId), act.defaultTargetAmount)
+                }
+            }
+        }
+        residentId
     }
 
     suspend fun deactivateResident(residentId: String): Result<Unit> = runCatching {
@@ -107,24 +99,6 @@ class AppRepository(
     }
 
     // ===================== OFFICERS =====================
-
-    fun getOfficersFlow(): Flow<List<Officer>> = callbackFlow {
-        val listener = firestore.collection("officers")
-            .orderBy("name")
-            .addSnapshotListener { snapshot, error ->
-                if (error != null) {
-                    close(error)
-                    return@addSnapshotListener
-                }
-                if (snapshot != null) {
-                    val list = snapshot.documents.mapNotNull { doc ->
-                        doc.toObject(Officer::class.java)?.copy(id = doc.id)
-                    }
-                    trySend(list)
-                }
-            }
-        awaitClose { listener.remove() }
-    }
 
     suspend fun getOfficers(): List<Officer> = runCatching {
         firestore.collection("officers").orderBy("name").get().await().documents.mapNotNull { doc ->
@@ -193,24 +167,6 @@ class AppRepository(
 
     // ===================== ACTIVITIES =====================
 
-    fun getActivitiesFlow(): Flow<List<IuranActivity>> = callbackFlow {
-        val listener = firestore.collection("activities")
-            .orderBy("startAtEpochMs", Query.Direction.DESCENDING)
-            .addSnapshotListener { snapshot, error ->
-                if (error != null) {
-                    close(error)
-                    return@addSnapshotListener
-                }
-                if (snapshot != null) {
-                    val list = snapshot.documents.mapNotNull { doc ->
-                        doc.toObject(IuranActivity::class.java)?.copy(id = doc.id)
-                    }
-                    trySend(list)
-                }
-            }
-        awaitClose { listener.remove() }
-    }
-
     suspend fun getActivities(): List<IuranActivity> = runCatching {
         firestore.collection("activities")
             .orderBy("startAtEpochMs", Query.Direction.DESCENDING)
@@ -224,98 +180,81 @@ class AppRepository(
         if (doc.exists()) doc.toObject(IuranActivity::class.java)!!.copy(id = doc.id) else null
     }.getOrNull()
 
-    fun getActiveActivitiesForOfficerFlow(officerId: String): Flow<List<IuranActivity>> = callbackFlow {
-        val listener = firestore.collection("activities")
-            .whereEqualTo("status", ActivityStatus.ACTIVE)
-            .whereArrayContains("assignedOfficerIds", officerId)
-            .addSnapshotListener { snapshot, error ->
-                if (error != null) {
-                    close(error)
-                    return@addSnapshotListener
-                }
-                if (snapshot != null) {
-                    val list = snapshot.documents.mapNotNull { doc ->
-                        doc.toObject(IuranActivity::class.java)?.copy(id = doc.id)
-                    }
-                    trySend(list)
-                }
-            }
-        awaitClose { listener.remove() }
-    }
-
     suspend fun getActiveActivitiesForOfficer(officerId: String): List<IuranActivity> = runCatching {
-        firestore.collection("activities")
-            .whereEqualTo("status", ActivityStatus.ACTIVE)
-            .whereArrayContains("assignedOfficerIds", officerId)
-            .get().await().documents.mapNotNull { doc ->
-                doc.toObject(IuranActivity::class.java)?.copy(id = doc.id)
-            }
+        // Coba query dengan string "ACTIVE" (cara Firestore menyimpan enum Kotlin)
+        val snapshot = firestore.collection("activities")
+            .whereEqualTo("status", ActivityStatus.ACTIVE.name)
+            .get().await()
+        val fromEnum = snapshot.documents.mapNotNull { doc ->
+            doc.toObject(IuranActivity::class.java)?.copy(id = doc.id)
+        }
+        // Fallback: jika kosong, ambil semua kegiatan dan filter status di sisi klien
+        // (menangani kasus dimana status disimpan sebagai objek atau format lain)
+        val activities = fromEnum.ifEmpty {
+            firestore.collection("activities")
+                .get().await().documents.mapNotNull { doc ->
+                    doc.toObject(IuranActivity::class.java)?.copy(id = doc.id)
+                }.filter { it.status == ActivityStatus.ACTIVE }
+        }
+        activities.filter { activity ->
+            activity.assignedOfficerIds.isEmpty() || activity.assignedOfficerIds.contains(officerId)
+        }.sortedByDescending { it.startAtEpochMs }
     }.getOrDefault(emptyList())
 
     suspend fun saveActivity(activity: IuranActivity): Result<String> = runCatching {
         val now = System.currentTimeMillis()
-        val activeOfficers = getOfficers().filter { it.isActive }.map { it.id }
-        
+        val activityId: String
         if (activity.id.isEmpty()) {
             val ref = firestore.collection("activities").document()
-            val newActivity = activity.copy(
-                id = ref.id,
-                createdAt = now,
-                updatedAt = now,
-                assignedOfficerIds = activeOfficers
-            )
-            ref.set(newActivity).await()
-            
-            // Assign all active residents
-            val activeResidents = getResidents(activeOnly = true).map { it.id }
-            if (activeResidents.isNotEmpty()) {
-                upsertParticipants(ref.id, activeResidents, activity.defaultTargetAmount)
-            }
-            
-            ref.id
+            activityId = ref.id
+            ref.set(activity.copy(id = activityId, createdAt = now, updatedAt = now)).await()
         } else {
-            val updatedActivity = activity.copy(
-                updatedAt = now,
-                assignedOfficerIds = activeOfficers
-            )
-            firestore.collection("activities").document(activity.id)
-                .set(updatedActivity).await()
-            activity.id
+            activityId = activity.id
+            firestore.collection("activities").document(activityId)
+                .set(activity.copy(updatedAt = now)).await()
         }
-    }
 
-    suspend fun deleteActivity(activityId: String): Result<Unit> = runCatching {
-        firestore.collection("activities").document(activityId).delete().await()
+        val existingParticipants = getParticipants(activityId).map { it.residentId }.toSet()
+        val activeResidents = getResidents(activeOnly = true)
+        val missingResidentIds = activeResidents.map { it.id }.filter { it !in existingParticipants }
+        if (missingResidentIds.isNotEmpty()) {
+            upsertParticipants(activityId, missingResidentIds, activity.defaultTargetAmount)
+        }
+        activityId
     }
 
     // ===================== PARTICIPANTS =====================
 
-    fun getParticipantsFlow(activityId: String): Flow<List<ActivityParticipant>> = callbackFlow {
-        val listener = firestore.collection("activity_participants")
-            .whereEqualTo("activityId", activityId)
-            .whereEqualTo("isIncluded", true)
-            .addSnapshotListener { snapshot, error ->
-                if (error != null) {
-                    close(error)
-                    return@addSnapshotListener
-                }
-                if (snapshot != null) {
-                    val list = snapshot.documents.mapNotNull { doc ->
-                        doc.toObject(ActivityParticipant::class.java)?.copy(id = doc.id)
-                    }
-                    trySend(list)
-                }
-            }
-        awaitClose { listener.remove() }
-    }
-
     suspend fun getParticipants(activityId: String): List<ActivityParticipant> = runCatching {
-        firestore.collection("activity_participants")
+        val snapshot = firestore.collection("activity_participants")
             .whereEqualTo("activityId", activityId)
-            .whereEqualTo("isIncluded", true)
-            .get().await().documents.mapNotNull { doc ->
-                doc.toObject(ActivityParticipant::class.java)?.copy(id = doc.id)
+            .get().await()
+        val docs = snapshot.documents.mapNotNull { doc ->
+            doc.toObject(ActivityParticipant::class.java)?.copy(id = doc.id)
+        }.filter { it.isIncluded }
+        if (docs.isNotEmpty()) {
+            docs
+        } else {
+            val activity = getActivityById(activityId)
+            val residents = getResidents(activeOnly = true)
+            if (activity != null && residents.isNotEmpty()) {
+                val residentIds = residents.map { it.id }
+                upsertParticipants(activityId, residentIds, activity.defaultTargetAmount)
+                residents.map { res ->
+                    ActivityParticipant(
+                        id = "${activityId}_${res.id}",
+                        activityId = activityId,
+                        residentId = res.id,
+                        targetAmount = activity.defaultTargetAmount,
+                        isIncluded = true,
+                        createdAt = System.currentTimeMillis(),
+                        updatedAt = System.currentTimeMillis()
+                    )
+                }
+            } else {
+                emptyList()
             }
+        }
     }.getOrDefault(emptyList())
 
     suspend fun saveParticipant(participant: ActivityParticipant): Result<String> = runCatching {
@@ -356,104 +295,40 @@ class AppRepository(
 
     // ===================== TRANSACTIONS =====================
 
-    fun getTransactionsFlow(activityId: String, residentId: String): Flow<List<PaymentTransaction>> = callbackFlow {
-        val listener = firestore.collection("transactions")
-            .whereEqualTo("activityId", activityId)
-            .whereEqualTo("residentId", residentId)
-            .orderBy("paidAtDeviceEpochMs", Query.Direction.DESCENDING)
-            .addSnapshotListener { snapshot, error ->
-                if (error != null) {
-                    close(error)
-                    return@addSnapshotListener
-                }
-                if (snapshot != null) {
-                    val list = snapshot.documents.mapNotNull { doc ->
-                        doc.toObject(PaymentTransaction::class.java)
-                    }
-                    trySend(list)
-                }
-            }
-        awaitClose { listener.remove() }
-    }
-
     suspend fun getTransactions(activityId: String, residentId: String): List<PaymentTransaction> = runCatching {
         firestore.collection("transactions")
             .whereEqualTo("activityId", activityId)
-            .whereEqualTo("residentId", residentId)
-            .orderBy("paidAtDeviceEpochMs", Query.Direction.DESCENDING)
             .get().await().documents.mapNotNull { doc ->
                 doc.toObject(PaymentTransaction::class.java)
-            }
+            }.filter { it.residentId == residentId }
+            .sortedByDescending { it.paidAtDeviceEpochMs }
     }.getOrDefault(emptyList())
-
-    fun getAllTransactionsFlow(activityId: String? = null): Flow<List<PaymentTransaction>> = callbackFlow {
-        val query = if (activityId != null) {
-            firestore.collection("transactions")
-                .whereEqualTo("activityId", activityId)
-                .orderBy("paidAtDeviceEpochMs", Query.Direction.DESCENDING)
-        } else {
-            firestore.collection("transactions")
-                .orderBy("paidAtDeviceEpochMs", Query.Direction.DESCENDING)
-                .limit(200)
-        }
-        val listener = query.addSnapshotListener { snapshot, error ->
-            if (error != null) {
-                close(error)
-                return@addSnapshotListener
-            }
-            if (snapshot != null) {
-                val list = snapshot.documents.mapNotNull { doc ->
-                    doc.toObject(PaymentTransaction::class.java)
-                }
-                trySend(list)
-            }
-        }
-        awaitClose { listener.remove() }
-    }
 
     suspend fun getAllTransactions(activityId: String? = null): List<PaymentTransaction> = runCatching {
-        val query = if (activityId != null) {
+        val list = if (activityId != null) {
             firestore.collection("transactions")
                 .whereEqualTo("activityId", activityId)
-                .orderBy("paidAtDeviceEpochMs", Query.Direction.DESCENDING)
+                .get().await().documents.mapNotNull { doc ->
+                    doc.toObject(PaymentTransaction::class.java)
+                }
         } else {
             firestore.collection("transactions")
-                .orderBy("paidAtDeviceEpochMs", Query.Direction.DESCENDING)
                 .limit(200)
+                .get().await().documents.mapNotNull { doc ->
+                    doc.toObject(PaymentTransaction::class.java)
+                }
         }
-        query.get().await().documents.mapNotNull { doc ->
-            doc.toObject(PaymentTransaction::class.java)
-        }
+        list.sortedByDescending { it.paidAtDeviceEpochMs }
     }.getOrDefault(emptyList())
-
-    fun getMyTransactionsFlow(officerId: String): Flow<List<PaymentTransaction>> = callbackFlow {
-        val listener = firestore.collection("transactions")
-            .whereEqualTo("officerId", officerId)
-            .orderBy("paidAtDeviceEpochMs", Query.Direction.DESCENDING)
-            .limit(100)
-            .addSnapshotListener { snapshot, error ->
-                if (error != null) {
-                    close(error)
-                    return@addSnapshotListener
-                }
-                if (snapshot != null) {
-                    val list = snapshot.documents.mapNotNull { doc ->
-                        doc.toObject(PaymentTransaction::class.java)
-                    }
-                    trySend(list)
-                }
-            }
-        awaitClose { listener.remove() }
-    }
 
     suspend fun getMyTransactions(officerId: String): List<PaymentTransaction> = runCatching {
         firestore.collection("transactions")
             .whereEqualTo("officerId", officerId)
-            .orderBy("paidAtDeviceEpochMs", Query.Direction.DESCENDING)
-            .limit(100)
             .get().await().documents.mapNotNull { doc ->
                 doc.toObject(PaymentTransaction::class.java)
             }
+            .sortedByDescending { it.paidAtDeviceEpochMs }
+            .take(100)
     }.getOrDefault(emptyList())
 
     suspend fun createPayment(
@@ -569,7 +444,7 @@ class AppRepository(
     }
 
     /** Hitung rekapan satu kegiatan */
-    suspend fun getActivitySummary(activity: IuranActivity): ActivitySummary {
+    suspend fun getActivitySummary(activity: IuranActivity): ActivitySummary = runCatching {
         val participants = getParticipants(activity.id)
         var totalCollected = 0L
         var totalTarget = 0L
@@ -585,8 +460,8 @@ class AppRepository(
                 else -> countPartial++
             }
         }
-        return ActivitySummary(activity, totalCollected, totalTarget, countPaid, countPartial, countUnpaid, countOverpaid)
-    }
+        ActivitySummary(activity, totalCollected, totalTarget, countPaid, countPartial, countUnpaid, countOverpaid)
+    }.getOrDefault(ActivitySummary(activity, 0L, 0L, 0, 0, 0, 0))
 
     // ===================== PASSWORD UTILS =====================
 

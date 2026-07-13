@@ -37,13 +37,48 @@ fun AdminDashboardScreen(
     var activities by remember { mutableStateOf<List<IuranActivity>>(emptyList()) }
     var selectedTab by remember { mutableIntStateOf(0) }
     var isLoading by remember { mutableStateOf(true) }
+    var showResidentForm by remember { mutableStateOf(false) }
+    var showLogoutDialog by remember { mutableStateOf(false) }
 
-    LaunchedEffect(Unit) {
+    LaunchedEffect(selectedTab) {
         isLoading = true
-        repository.getActivitiesFlow().collect { list ->
-            activities = list
-            isLoading = false
-        }
+        activities = repository.getActivities()
+        isLoading = false
+    }
+
+    // Dialog logout konfirmasi
+    if (showLogoutDialog) {
+        AlertDialog(
+            onDismissRequest = { showLogoutDialog = false },
+            title = { Text("Keluar Akun", fontWeight = FontWeight.Bold) },
+            text = { Text("Apakah Anda yakin ingin keluar dari akun Admin ini?") },
+            confirmButton = {
+                TextButton(onClick = {
+                    showLogoutDialog = false
+                    coroutineScope.launch {
+                        sessionStore.clearSession()
+                        navController.navigate("login") { popUpTo(0) { inclusive = true } }
+                    }
+                }) {
+                    Text("Keluar", color = AccentDanger, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = { TextButton(onClick = { showLogoutDialog = false }) { Text("Batal") } }
+        )
+    }
+
+    // Dialog form tambah warga dari FAB
+    if (showResidentForm) {
+        ResidentFormDialog(
+            initial = null,
+            onDismiss = { showResidentForm = false },
+            onSave = { resident ->
+                coroutineScope.launch {
+                    repository.saveResident(resident)
+                    showResidentForm = false
+                }
+            }
+        )
     }
 
     Scaffold(
@@ -60,9 +95,7 @@ fun AdminDashboardScreen(
                         icon = { Icon(icon, contentDescription = label) },
                         label = { Text(label, style = MaterialTheme.typography.labelSmall) },
                         selected = selectedTab == idx,
-                        onClick = {
-                            selectedTab = idx
-                        },
+                        onClick = { selectedTab = idx },
                         colors = NavigationBarItemDefaults.colors(
                             selectedIconColor = AdminPrimary,
                             selectedTextColor = AdminPrimary,
@@ -80,8 +113,9 @@ fun AdminDashboardScreen(
                     contentColor = Color.White
                 ) { Icon(Icons.Default.Add, contentDescription = "Tambah Kegiatan") }
             } else if (selectedTab == 2) {
+                // FIX: langsung tampilkan dialog, bukan navigate ke route yang salah
                 FloatingActionButton(
-                    onClick = { navController.navigate("admin_resident_form/new") },
+                    onClick = { showResidentForm = true },
                     containerColor = AdminPrimary,
                     contentColor = Color.White
                 ) { Icon(Icons.Default.PersonAdd, contentDescription = "Tambah Warga") }
@@ -96,12 +130,7 @@ fun AdminDashboardScreen(
             4 -> AccountScreen(
                 primaryColor = AdminPrimary,
                 paddingValues = paddingValues,
-                onLogout = {
-                    coroutineScope.launch {
-                        sessionStore.clearSession()
-                        navController.navigate("login") { popUpTo(0) { inclusive = true } }
-                    }
-                }
+                onLogout = { showLogoutDialog = true }
             )
         }
     }
@@ -366,7 +395,7 @@ private fun AdminActivitiesTab(
 // =================== REUSABLE COMPONENTS ===================
 
 @Composable
-fun AdminActivityCard(activity: IuranActivity, onClick: () -> Unit = {}) {
+fun AdminActivityCard(activity: IuranActivity, onClick: () -> Unit = {}, progressFraction: Float = 0f) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -400,7 +429,8 @@ fun AdminActivityCard(activity: IuranActivity, onClick: () -> Unit = {}) {
             }
             Spacer(Modifier.height(12.dp))
             LinearProgressIndicator(
-                progress = { 0.75f },
+                // FIX: Gunakan progressFraction yang dihitung dari data aktual
+                progress = { progressFraction },
                 modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)),
                 color = AdminPrimary,
                 trackColor = AdminLight
@@ -412,7 +442,12 @@ fun AdminActivityCard(activity: IuranActivity, onClick: () -> Unit = {}) {
                     style = MaterialTheme.typography.bodySmall,
                     color = TextSecondary
                 )
-                Text("75%", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = AdminPrimary)
+                Text(
+                    "${(progressFraction * 100).toInt()}%",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = AdminPrimary
+                )
             }
         }
     }

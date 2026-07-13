@@ -37,22 +37,40 @@ fun OfficerDashboardScreen(
     var selectedTab by remember { mutableIntStateOf(0) }
     var isLoading by remember { mutableStateOf(true) }
     var showLogoutDialog by remember { mutableStateOf(false) }
+    val snackbarHostState = remember { SnackbarHostState() }
 
-    // FIX: gunakan key berbeda agar kedua LaunchedEffect berjalan
+    fun refreshActivities(showFeedback: Boolean = false) {
+        if (officerId.isBlank()) return
+        coroutineScope.launch {
+            if (showFeedback) isLoading = true
+            activities = repository.getActiveActivitiesForOfficer(officerId)
+            isLoading = false
+            if (showFeedback) {
+                snackbarHostState.showSnackbar("Sinkronisasi kegiatan berhasil diperbarui")
+            }
+        }
+    }
+
+    // FIX: Gunakan satu LaunchedEffect dengan key berbeda agar keduanya berjalan
     LaunchedEffect(Unit) {
         sessionStore.userName.collect { name -> name?.let { officerName = it } }
     }
 
-    LaunchedEffect("loadOfficerActivities") {
+    LaunchedEffect("loadOfficerId") {
         sessionStore.userId.collect { id ->
             if (id != null && officerId != id) {
                 officerId = id
                 isLoading = true
-                repository.getActiveActivitiesForOfficerFlow(id).collect { list ->
-                    activities = list
-                    isLoading = false
-                }
+                activities = repository.getActiveActivitiesForOfficer(id)
+                isLoading = false
             }
+        }
+    }
+
+    // Reload kegiatan setiap ganti tab kembali ke tab 0
+    LaunchedEffect(selectedTab) {
+        if (selectedTab == 0 && officerId.isNotBlank()) {
+            activities = repository.getActiveActivitiesForOfficer(officerId)
         }
     }
 
@@ -84,6 +102,7 @@ fun OfficerDashboardScreen(
     }
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         bottomBar = {
             NavigationBar(containerColor = AppSurface) {
                 listOf(
@@ -96,9 +115,7 @@ fun OfficerDashboardScreen(
                         icon = { Icon(icon, contentDescription = label) },
                         label = { Text(label, style = MaterialTheme.typography.labelSmall) },
                         selected = selectedTab == idx,
-                        onClick = {
-                            selectedTab = idx
-                        },
+                        onClick = { selectedTab = idx },
                         colors = NavigationBarItemDefaults.colors(
                             selectedIconColor = OfficerPrimary,
                             selectedTextColor = OfficerPrimary,
@@ -117,14 +134,16 @@ fun OfficerDashboardScreen(
                 isLoading = isLoading,
                 navController = navController,
                 paddingValues = paddingValues,
-                repository = repository
+                repository = repository,
+                onSyncClick = { refreshActivities(true) }
             )
             1 -> OfficerResidentsTab(officerId, activities, navController, repository, paddingValues)
             2 -> OfficerHistoryScreen(officerId, repository, paddingValues)
             3 -> AccountScreen(
                 primaryColor = OfficerPrimary,
                 paddingValues = paddingValues,
-                onLogout = { showLogoutDialog = true }
+                onLogout = { showLogoutDialog = true },
+                sessionStore = sessionStore
             )
         }
     }
@@ -138,7 +157,8 @@ private fun OfficerHomeContent(
     isLoading: Boolean,
     navController: NavController,
     paddingValues: PaddingValues,
-    repository: AppRepository
+    repository: AppRepository,
+    onSyncClick: () -> Unit
 ) {
     LazyColumn(
         modifier = Modifier
@@ -180,7 +200,8 @@ private fun OfficerHomeContent(
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                    .padding(horizontal = 16.dp, vertical = 12.dp)
+                    .clickable { onSyncClick() },
                 shape = RoundedCornerShape(16.dp),
                 colors = CardDefaults.cardColors(containerColor = AppSurface),
                 elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
@@ -197,7 +218,7 @@ private fun OfficerHomeContent(
                             color = OfficerPrimary
                         )
                         Text(
-                            "Firestore offline persistence aktif",
+                            "Firestore offline persistence aktif · Ketuk untuk refresh",
                             style = MaterialTheme.typography.bodySmall,
                             color = TextSecondary
                         )
@@ -220,8 +241,12 @@ private fun OfficerHomeContent(
                     color = TextPrimary,
                     modifier = Modifier.weight(1f)
                 )
-                TextButton(onClick = {}) {
-                    Text("Lihat Semua", color = OfficerPrimary)
+                if (activities.isNotEmpty()) {
+                    Text(
+                        "${activities.size} kegiatan",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = OfficerPrimary
+                    )
                 }
             }
         }
@@ -241,6 +266,12 @@ private fun OfficerHomeContent(
                     Icon(Icons.Default.EventBusy, null, tint = TextDisabled, modifier = Modifier.size(64.dp))
                     Spacer(Modifier.height(12.dp))
                     Text("Belum ada kegiatan aktif yang ditugaskan", color = TextSecondary)
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedButton(onClick = { onSyncClick() }) {
+                        Icon(Icons.Default.Refresh, null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("Muat Ulang")
+                    }
                 }
             }
         } else {
@@ -272,14 +303,14 @@ private fun OfficerHomeContent(
                 OfficerMenuIcon(Icons.Default.People, "Daftar Warga") {
                     if (activities.isNotEmpty()) navController.navigate("officer_residents/${activities.first().id}")
                 }
-                OfficerMenuIcon(Icons.Default.AddCircle, "Input Pembayaran") {
+                OfficerMenuIcon(Icons.Default.AddCircle, "Input Bayar") {
                     if (activities.isNotEmpty()) navController.navigate("officer_residents/${activities.first().id}")
                 }
                 OfficerMenuIcon(Icons.Default.History, "Riwayat") {
-                    // switch to history tab handled in parent
+                    // Handled by parent — biarkan user ganti tab secara manual
                 }
-                OfficerMenuIcon(Icons.Default.CloudDone, "Sinkronisasi") {
-                    // Firestore SDK handles auto-sync
+                OfficerMenuIcon(Icons.Default.Sync, "Sinkronisasi") {
+                    onSyncClick()
                 }
             }
             Spacer(Modifier.height(16.dp))
@@ -327,11 +358,13 @@ private fun OfficerResidentsTab(
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Icon(Icons.Default.EventBusy, null, tint = TextDisabled, modifier = Modifier.size(64.dp))
                 Spacer(Modifier.height(12.dp))
-                Text("Pilih kegiatan terlebih dahulu", color = TextSecondary)
+                Text("Belum ada kegiatan aktif", color = TextSecondary)
+                Spacer(Modifier.height(4.dp))
+                Text("Pilih kegiatan dari tab Beranda", style = MaterialTheme.typography.bodySmall, color = TextDisabled)
             }
         }
-    } else {
-        // Default tampilkan warga kegiatan pertama
+    } else if (activities.size == 1) {
+        // Langsung tampilkan warga untuk kegiatan tunggal
         val firstActivity = activities.first()
         OfficerResidentsScreen(
             activityId = firstActivity.id,
@@ -340,6 +373,73 @@ private fun OfficerResidentsTab(
             repository = repository,
             paddingValues = paddingValues
         )
+    } else {
+        // Ada banyak kegiatan — tampilkan pilihan
+        var selectedActivityId by remember { mutableStateOf(activities.first().id) }
+        val selectedActivity = activities.firstOrNull { it.id == selectedActivityId } ?: activities.first()
+
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(AppBackground)
+                .padding(paddingValues)
+        ) {
+            // Pilih kegiatan
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(OfficerPrimary)
+                    .padding(horizontal = 16.dp, vertical = 12.dp)
+            ) {
+                Column {
+                    Text(
+                        "Pilih Kegiatan",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = Color.White.copy(alpha = 0.8f)
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    LazyColumn(modifier = Modifier.heightIn(max = 160.dp)) {
+                        items(activities) { act ->
+                            val isSelected = act.id == selectedActivityId
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 2.dp)
+                                    .clickable { selectedActivityId = act.id },
+                                shape = RoundedCornerShape(8.dp),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = if (isSelected) Color.White else Color.White.copy(alpha = 0.15f)
+                                )
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    if (isSelected) {
+                                        Icon(Icons.Default.CheckCircle, null, tint = OfficerPrimary, modifier = Modifier.size(16.dp))
+                                        Spacer(Modifier.width(8.dp))
+                                    }
+                                    Text(
+                                        act.name,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                        color = if (isSelected) OfficerPrimary else Color.White
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            OfficerResidentsScreen(
+                activityId = selectedActivity.id,
+                activityName = selectedActivity.name,
+                navController = navController,
+                repository = repository,
+                paddingValues = PaddingValues(0.dp)
+            )
+        }
     }
 }
 
@@ -383,21 +483,18 @@ fun OfficerActivityCard(activity: IuranActivity, onClick: () -> Unit) {
             }
             Spacer(Modifier.height(12.dp))
             LinearProgressIndicator(
-                progress = { 0.75f },
+                progress = { 0f },
                 modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)),
                 color = OfficerPrimary,
                 trackColor = OfficerLight
             )
             Spacer(Modifier.height(8.dp))
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text(
-                    "Tekan untuk buka penarikan",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = OfficerPrimary,
-                    fontWeight = FontWeight.Medium
-                )
-                Text("75%", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = OfficerPrimary)
-            }
+            Text(
+                "Ketuk untuk buka daftar warga",
+                style = MaterialTheme.typography.labelSmall,
+                color = OfficerPrimary,
+                fontWeight = FontWeight.Medium
+            )
         }
     }
 }
