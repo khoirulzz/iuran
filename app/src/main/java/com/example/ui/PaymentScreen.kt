@@ -168,7 +168,8 @@ fun PaymentScreen(
                         value = amountText,
                         onValueChange = { new ->
                             val digits = new.filter(Char::isDigit)
-                            amountText = digits
+                            val num = digits.toLongOrNull()
+                            amountText = if (num != null && num > 0) fmt.format(num) else ""
                         },
                         label = { Text("Masukkan nominal (Rp)") },
                         leadingIcon = { Text("Rp", color = OfficerPrimary, modifier = Modifier.padding(start = 12.dp)) },
@@ -200,11 +201,12 @@ fun PaymentScreen(
                         )
                         items(quickAmounts) { (label, amount) ->
                             if (amount > 0) {
+                                val formattedAmt = fmt.format(amount)
                                 ElevatedButton(
-                                    onClick = { amountText = amount.toString() },
+                                    onClick = { amountText = formattedAmt },
                                     colors = ButtonDefaults.elevatedButtonColors(
-                                        containerColor = if (amountText == amount.toString()) OfficerLight else AppSurface,
-                                        contentColor = if (amountText == amount.toString()) OfficerPrimary else TextPrimary
+                                        containerColor = if (amountText == formattedAmt) OfficerLight else AppSurface,
+                                        contentColor = if (amountText == formattedAmt) OfficerPrimary else TextPrimary
                                     ),
                                     shape = RoundedCornerShape(10.dp),
                                     contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp)
@@ -212,7 +214,7 @@ fun PaymentScreen(
                                     Text(
                                         label,
                                         style = MaterialTheme.typography.labelMedium,
-                                        fontWeight = if (amountText == amount.toString()) FontWeight.Bold else FontWeight.Normal
+                                        fontWeight = if (amountText == formattedAmt) FontWeight.Bold else FontWeight.Normal
                                     )
                                 }
                             }

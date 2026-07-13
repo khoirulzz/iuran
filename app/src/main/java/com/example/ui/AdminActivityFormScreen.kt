@@ -23,6 +23,7 @@ import kotlinx.coroutines.launch
 import com.example.data.AppRepository
 import com.example.domain.*
 import com.example.ui.theme.*
+import java.text.NumberFormat
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -43,6 +44,7 @@ fun AdminActivityFormScreen(
     var status by remember { mutableStateOf(ActivityStatus.DRAFT) }
     var isSaving by remember { mutableStateOf(false) }
     var errorMsg by remember { mutableStateOf<String?>(null) }
+    val fmt = remember { NumberFormat.getNumberInstance(Locale("id", "ID")) }
 
     // Date pickers (simplified: teks string format yyyy-MM-dd)
     var startDateStr by remember { mutableStateOf("") }
@@ -58,7 +60,7 @@ fun AdminActivityFormScreen(
                 existingActivity = act
                 name = act.name
                 description = act.description
-                targetAmount = act.defaultTargetAmount.toString()
+                targetAmount = if (act.defaultTargetAmount > 0) fmt.format(act.defaultTargetAmount) else ""
                 allowLatePayment = act.allowLatePayment
                 status = act.status
                 val sdf = SimpleDateFormat("dd/MM/yyyy", Locale("id", "ID"))
@@ -205,7 +207,11 @@ fun AdminActivityFormScreen(
                     Spacer(Modifier.height(12.dp))
                     OutlinedTextField(
                         value = targetAmount,
-                        onValueChange = { if (it.all(Char::isDigit)) targetAmount = it },
+                        onValueChange = { new ->
+                            val digits = new.filter(Char::isDigit)
+                            val num = digits.toLongOrNull()
+                            targetAmount = if (num != null && num > 0) fmt.format(num) else ""
+                        },
                         label = { Text("Target Default per Warga (Rp) *") },
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(12.dp),
@@ -272,7 +278,7 @@ fun AdminActivityFormScreen(
             item {
                 Button(
                     onClick = {
-                        val target = targetAmount.toLongOrNull()
+                        val target = targetAmount.replace(".", "").replace(",", "").toLongOrNull()
                         when {
                             name.isBlank() -> errorMsg = "Nama kegiatan wajib diisi."
                             target == null || target <= 0 -> errorMsg = "Target nominal harus lebih dari 0."
