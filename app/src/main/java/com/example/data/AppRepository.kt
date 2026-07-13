@@ -3,6 +3,8 @@ package com.example.data
 import com.example.domain.*
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.tasks.await
 import java.security.SecureRandom
 import java.text.SimpleDateFormat
@@ -462,6 +464,18 @@ class AppRepository(
         }
         ActivitySummary(activity, totalCollected, totalTarget, countPaid, countPartial, countUnpaid, countOverpaid)
     }.getOrDefault(ActivitySummary(activity, 0L, 0L, 0, 0, 0, 0))
+
+    suspend fun deleteActivity(activityId: String): Result<Unit> = runCatching {
+        firestore.collection("activities").document(activityId).delete().await()
+    }
+
+    fun getResidentsFlow(activeOnly: Boolean = false): Flow<List<Resident>> = flow { emit(getResidents(activeOnly)) }
+    fun getOfficersFlow(): Flow<List<Officer>> = flow { emit(getOfficers()) }
+    fun getActivitiesFlow(): Flow<List<IuranActivity>> = flow { emit(getActivities()) }
+    fun getParticipantsFlow(activityId: String): Flow<List<ActivityParticipant>> = flow { emit(getParticipants(activityId)) }
+    fun getTransactionsFlow(activityId: String, residentId: String): Flow<List<PaymentTransaction>> = flow { emit(getTransactions(activityId, residentId)) }
+    fun getAllTransactionsFlow(activityId: String? = null): Flow<List<PaymentTransaction>> = flow { emit(getAllTransactions(activityId)) }
+    fun getMyTransactionsFlow(officerId: String): Flow<List<PaymentTransaction>> = flow { emit(getMyTransactions(officerId)) }
 
     // ===================== PASSWORD UTILS =====================
 

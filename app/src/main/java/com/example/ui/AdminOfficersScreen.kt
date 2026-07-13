@@ -44,10 +44,8 @@ fun AdminOfficersScreen(
     fun loadOfficers() {
         coroutineScope.launch {
             isLoading = true
-            repository.getOfficersFlow().collect { list ->
-                officers = list
-                isLoading = false
-            }
+            officers = repository.getOfficers()
+            isLoading = false
         }
     }
 

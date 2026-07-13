@@ -45,10 +45,8 @@ fun AdminResidentsScreen(
     fun loadResidents() {
         coroutineScope.launch {
             isLoading = true
-            repository.getResidentsFlow(activeOnly = false).collect { list ->
-                residents = list
-                isLoading = false
-            }
+            residents = repository.getResidents(activeOnly = false)
+            isLoading = false
         }
     }
 

@@ -42,10 +42,8 @@ fun OfficerHistoryScreen(
     LaunchedEffect(officerId) {
         if (officerId.isNotEmpty()) {
             isLoading = true
-            repository.getMyTransactionsFlow(officerId).collect { list ->
-                transactions = list
-                isLoading = false
-            }
+            transactions = repository.getMyTransactions(officerId)
+            isLoading = false
         }
     }
 

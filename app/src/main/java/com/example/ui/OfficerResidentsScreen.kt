@@ -46,10 +46,13 @@ fun OfficerResidentsScreen(
 
     LaunchedEffect(activityId) {
         isLoading = true
-        repository.getParticipantsFlow(activityId).collect { participants ->
-            summaries = participants.mapNotNull { repository.getResidentSummary(activityId, it) }
-            isLoading = false
+        val participants = repository.getParticipants(activityId)
+        val list = mutableListOf<ResidentPaymentSummary>()
+        for (p in participants) {
+            repository.getResidentSummary(activityId, p)?.let { list.add(it) }
         }
+        summaries = list
+        isLoading = false
     }
 
     val filtered = summaries.filter { s ->

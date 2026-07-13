@@ -41,18 +41,19 @@ fun AdminReportsScreen(
 
     LaunchedEffect(Unit) {
         isLoading = true
-        repository.getActivitiesFlow().collect { acts ->
-            activities = acts.filter { it.status == ActivityStatus.ACTIVE || it.status == ActivityStatus.COMPLETED }
-            summaries = activities.map { repository.getActivitySummary(it) }
-            isLoading = false
+        val acts = repository.getActivities()
+        activities = acts.filter { it.status == ActivityStatus.ACTIVE || it.status == ActivityStatus.COMPLETED }
+        val sumList = mutableListOf<ActivitySummary>()
+        for (a in activities) {
+            sumList.add(repository.getActivitySummary(a))
         }
+        summaries = sumList
+        isLoading = false
     }
 
     LaunchedEffect(selectedActivityId) {
         if (selectedActivityId != null) {
-            repository.getAllTransactionsFlow(selectedActivityId).collect { txs ->
-                transactions = txs
-            }
+            transactions = repository.getAllTransactions(selectedActivityId)
         }
     }
 

@@ -45,10 +45,8 @@ fun AdminTransactionsScreen(
     fun loadTransactions() {
         coroutineScope.launch {
             isLoading = true
-            repository.getAllTransactionsFlow().collect { list ->
-                transactions = list
-                isLoading = false
-            }
+            transactions = repository.getAllTransactions()
+            isLoading = false
         }
     }
 
