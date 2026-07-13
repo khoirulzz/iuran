@@ -36,14 +36,16 @@ fun OfficerDashboardScreen(
     var officerId by remember { mutableStateOf("") }
     var selectedTab by remember { mutableIntStateOf(0) }
     var isLoading by remember { mutableStateOf(true) }
+    var showLogoutDialog by remember { mutableStateOf(false) }
 
+    // FIX: gunakan key berbeda agar kedua LaunchedEffect berjalan
     LaunchedEffect(Unit) {
         sessionStore.userName.collect { name -> name?.let { officerName = it } }
     }
 
-    LaunchedEffect(Unit) {
+    LaunchedEffect("loadOfficerActivities") {
         sessionStore.userId.collect { id ->
-            if (id != null) {
+            if (id != null && officerId != id) {
                 officerId = id
                 isLoading = true
                 repository.getActiveActivitiesForOfficerFlow(id).collect { list ->
@@ -52,6 +54,33 @@ fun OfficerDashboardScreen(
                 }
             }
         }
+    }
+
+    // Dialog konfirmasi logout
+    if (showLogoutDialog) {
+        AlertDialog(
+            onDismissRequest = { showLogoutDialog = false },
+            title = { Text("Keluar Akun", fontWeight = FontWeight.Bold) },
+            text = { Text("Apakah Anda yakin ingin keluar dari akun ini?") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showLogoutDialog = false
+                        coroutineScope.launch {
+                            sessionStore.clearSession()
+                            navController.navigate("login") { popUpTo(0) { inclusive = true } }
+                        }
+                    }
+                ) {
+                    Text("Keluar", color = AccentDanger, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showLogoutDialog = false }) {
+                    Text("Batal")
+                }
+            }
+        )
     }
 
     Scaffold(
@@ -95,12 +124,7 @@ fun OfficerDashboardScreen(
             3 -> AccountScreen(
                 primaryColor = OfficerPrimary,
                 paddingValues = paddingValues,
-                onLogout = {
-                    coroutineScope.launch {
-                        sessionStore.clearSession()
-                        navController.navigate("login") { popUpTo(0) { inclusive = true } }
-                    }
-                }
+                onLogout = { showLogoutDialog = true }
             )
         }
     }
@@ -254,8 +278,8 @@ private fun OfficerHomeContent(
                 OfficerMenuIcon(Icons.Default.History, "Riwayat") {
                     // switch to history tab handled in parent
                 }
-                OfficerMenuIcon(Icons.Default.CloudSync, "Sinkronisasi") {
-                    // Manual sync: Firestore SDK handles auto-sync
+                OfficerMenuIcon(Icons.Default.CloudDone, "Sinkronisasi") {
+                    // Firestore SDK handles auto-sync
                 }
             }
             Spacer(Modifier.height(16.dp))
@@ -279,7 +303,7 @@ private fun OfficerHomeContent(
                         color = OfficerDark,
                         modifier = Modifier.weight(1f)
                     )
-                    Icon(Icons.Default.EmojiPeople, null, tint = OfficerPrimary, modifier = Modifier.size(40.dp))
+                    Icon(Icons.Default.ThumbUp, null, tint = OfficerPrimary, modifier = Modifier.size(40.dp))
                 }
             }
             Spacer(Modifier.height(80.dp))
