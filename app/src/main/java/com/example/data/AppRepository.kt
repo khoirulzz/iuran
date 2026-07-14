@@ -538,9 +538,11 @@ class AppRepository(
         count += acts.size()
         val res = firestore.collection("residents").get(Source.SERVER).await()
         count += res.size()
-        val txs = firestore.collection("transactions").limit(200).get(Source.SERVER).await()
+        val parts = firestore.collection("activity_participants").get(Source.SERVER).await()
+        count += parts.size()
+        val txs = firestore.collection("transactions").get(Source.SERVER).await()
         count += txs.size()
-        // Setelah sync, bersihkan seluruh in-memory cache agar data terbaru tampil
+        // Setelah sync dari server, bersihkan seluruh in-memory cache agar data terbaru tampil
         invalidateCache()
         "Sinkronisasi berhasil memuat $count dokumen dari server."
     }
