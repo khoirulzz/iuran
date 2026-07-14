@@ -47,9 +47,14 @@ fun AdminResidentsScreen(
     var editingResident by remember { mutableStateOf<Resident?>(null) }
     val coroutineScope = rememberCoroutineScope()
 
+    var isImporting by remember { mutableStateOf(false) }
+    var importResultDialog by remember { mutableStateOf<String?>(null) }
+    var deletingResident by remember { mutableStateOf<Resident?>(null) }
+
     val csvLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri != null) {
             coroutineScope.launch {
+                isImporting = true
                 try {
                     val inputStream = context.contentResolver.openInputStream(uri)
                     val reader = BufferedReader(InputStreamReader(inputStream))
@@ -64,7 +69,7 @@ fun AdminResidentsScreen(
                             } else {
                                 isHeader = false
                                 val cols = line.split(",")
-                                val nama = cols.getOrNull(0)?.trim() ?: ""
+                                val nama = cols.getOrNull(0)?.trim()?.uppercase() ?: ""
                                 if (nama.isNotEmpty()) {
                                     val noRumah = cols.getOrNull(1)?.trim() ?: ""
                                     val blok = cols.getOrNull(2)?.trim() ?: ""
@@ -87,9 +92,11 @@ fun AdminResidentsScreen(
                         }
                     }
                     residents = repository.getResidents(activeOnly = false)
-                    android.widget.Toast.makeText(context, "Berhasil mengimpor $countImported warga dari file CSV.", android.widget.Toast.LENGTH_LONG).show()
+                    isImporting = false
+                    importResultDialog = "Berhasil mengimpor $countImported warga dari file CSV."
                 } catch (e: Exception) {
-                    android.widget.Toast.makeText(context, "Gagal mengimpor CSV: ${e.message}", android.widget.Toast.LENGTH_LONG).show()
+                    isImporting = false
+                    importResultDialog = "Gagal mengimpor CSV: ${e.message}"
                 }
             }
         }
@@ -114,7 +121,7 @@ fun AdminResidentsScreen(
             r.address.lowercase().contains(q)
         val matchActive = showInactive || r.isActive
         matchSearch && matchActive
-    }
+    }.sortedBy { it.name.uppercase() }
 
     Box(
         modifier = Modifier
@@ -122,60 +129,52 @@ fun AdminResidentsScreen(
             .background(AppBackground)
             .padding(paddingValues)
     ) {
-        LazyColumn(modifier = Modifier.fillMaxSize()) {
-            // Header
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(bottom = 100.dp)
+        ) {
             item {
-                Box(
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(AdminPrimary)
-                        .padding(horizontal = 20.dp, vertical = 16.dp)
+                        .padding(horizontal = 16.dp, vertical = 12.dp)
                 ) {
-                    Text(
-                        "Data Warga",
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White
-                    )
-                }
-            }
-
-            // Search & Filter
-            item {
-                Column(modifier = Modifier.padding(16.dp)) {
                     OutlinedTextField(
                         value = searchQuery,
                         onValueChange = { searchQuery = it },
-                        placeholder = { Text("Cari nama, nomor rumah, blok…") },
-                        leadingIcon = { Icon(Icons.Default.Search, null, tint = AdminPrimary) },
-                        trailingIcon = {
-                            if (searchQuery.isNotEmpty()) {
-                                IconButton(onClick = { searchQuery = "" }) {
-                                    Icon(Icons.Default.Clear, null)
-                                }
-                            }
-                        },
+                        placeholder = { Text("Cari warga (nama/blok/no. rumah)...") },
+                        leadingIcon = { Icon(Icons.Default.Search, null, tint = TextSecondary) },
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(14.dp),
                         singleLine = true,
                         colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = AdminPrimary,
-                            unfocusedBorderColor = BorderColor
+                            focusedContainerColor = AppSurface,
+                            unfocusedContainerColor = AppSurface
                         )
                     )
                     Spacer(Modifier.height(8.dp))
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Checkbox(
-                            checked = showInactive,
-                            onCheckedChange = { showInactive = it },
-                            colors = CheckboxDefaults.colors(checkedColor = AdminPrimary)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        FilterChip(
+                            selected = !showInactive,
+                            onClick = { showInactive = false },
+                            label = { Text("Aktif Saja") },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = AdminLight,
+                                selectedLabelColor = AdminPrimary
+                            )
                         )
-                        Text("Tampilkan warga nonaktif", style = MaterialTheme.typography.bodyMedium, color = TextSecondary)
-                        Spacer(Modifier.weight(1f))
-                        Text(
-                            "${filtered.size} warga",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = TextSecondary
+                        Spacer(Modifier.width(8.dp))
+                        FilterChip(
+                            selected = showInactive,
+                            onClick = { showInactive = true },
+                            label = { Text("Tampilkan Nonaktif") },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = AdminLight,
+                                selectedLabelColor = AdminPrimary
+                            )
                         )
                     }
                     Spacer(Modifier.height(8.dp))
@@ -220,11 +219,7 @@ fun AdminResidentsScreen(
                     ) {
                         Icon(Icons.Default.PersonOff, null, tint = TextDisabled, modifier = Modifier.size(64.dp))
                         Spacer(Modifier.height(12.dp))
-                        Text(
-                            if (searchQuery.isEmpty()) "Belum ada data warga"
-                            else "Warga tidak ditemukan",
-                            color = TextSecondary
-                        )
+                        Text("Tidak ada data warga ditemukan", color = TextSecondary)
                     }
                 }
             } else {
@@ -235,17 +230,70 @@ fun AdminResidentsScreen(
                             editingResident = resident
                             showFormDialog = true
                         },
-                        onToggleActive = {
-                            coroutineScope.launch {
-                                repository.deactivateResident(resident.id)
-                                loadResidents()
-                            }
+                        onDelete = {
+                            deletingResident = resident
                         }
                     )
                 }
             }
             item { Spacer(Modifier.height(80.dp)) }
         }
+    }
+
+    if (isImporting) {
+        AlertDialog(
+            onDismissRequest = {},
+            title = { Text("Mengimpor Data Warga", fontWeight = FontWeight.Bold) },
+            text = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    CircularProgressIndicator(color = AdminPrimary, modifier = Modifier.size(32.dp))
+                    Spacer(Modifier.width(16.dp))
+                    Text("Sedang membaca file CSV & menyimpan data warga...")
+                }
+            },
+            confirmButton = {}
+        )
+    }
+
+    if (importResultDialog != null) {
+        AlertDialog(
+            onDismissRequest = { importResultDialog = null },
+            title = { Text("Hasil Impor CSV", fontWeight = FontWeight.Bold) },
+            text = { Text(importResultDialog!!) },
+            confirmButton = {
+                Button(onClick = { importResultDialog = null }, colors = ButtonDefaults.buttonColors(containerColor = AdminPrimary)) {
+                    Text("OK")
+                }
+            }
+        )
+    }
+
+    if (deletingResident != null) {
+        AlertDialog(
+            onDismissRequest = { deletingResident = null },
+            title = { Text("Hapus Data Warga", fontWeight = FontWeight.Bold, color = AccentDanger) },
+            text = { Text("Apakah Anda yakin ingin menghapus data warga '${deletingResident!!.name.uppercase()}' secara permanen?") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val target = deletingResident!!
+                        deletingResident = null
+                        coroutineScope.launch {
+                            repository.deleteResident(target.id)
+                            loadResidents()
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = AccentDanger)
+                ) {
+                    Text("Hapus Permanen")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { deletingResident = null }) {
+                    Text("Batal")
+                }
+            }
+        )
     }
 
     // Dialog form tambah / edit warga
@@ -272,13 +320,12 @@ fun AdminResidentsScreen(
 private fun ResidentListItem(
     resident: Resident,
     onEdit: () -> Unit,
-    onToggleActive: () -> Unit
+    onDelete: () -> Unit
 ) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 4.dp)
-            .clickable(onClick = onEdit),
+            .padding(horizontal = 16.dp, vertical = 4.dp),
         shape = RoundedCornerShape(14.dp),
         colors = CardDefaults.cardColors(
             containerColor = if (resident.isActive) AppSurface else Color(0xFFF8FAFC)
@@ -307,7 +354,7 @@ private fun ResidentListItem(
             Column(modifier = Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        resident.name,
+                        resident.name.uppercase(),
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.SemiBold,
                         color = if (resident.isActive) TextPrimary else TextDisabled
@@ -334,8 +381,13 @@ private fun ResidentListItem(
                     color = TextSecondary
                 )
             }
-            IconButton(onClick = onEdit) {
-                Icon(Icons.Default.Edit, null, tint = AdminPrimary, modifier = Modifier.size(20.dp))
+            Row {
+                IconButton(onClick = onEdit) {
+                    Icon(Icons.Default.Edit, null, tint = AdminPrimary, modifier = Modifier.size(20.dp))
+                }
+                IconButton(onClick = onDelete) {
+                    Icon(Icons.Default.Delete, null, tint = AccentDanger, modifier = Modifier.size(20.dp))
+                }
             }
         }
     }

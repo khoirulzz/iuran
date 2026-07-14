@@ -58,7 +58,7 @@ fun ActivityDetailScreen(
             s.resident.name.lowercase().contains(q) ||
             s.resident.houseNumber.lowercase().contains(q) ||
             s.resident.block.lowercase().contains(q)
-    }
+    }.sortedBy { it.resident.name.uppercase() }
 
     var showDeleteDialog by remember { mutableStateOf(false) }
     var isDeleting by remember { mutableStateOf(false) }
@@ -173,7 +173,7 @@ fun ActivityDetailScreen(
                                 }
                                 Spacer(Modifier.width(12.dp))
                                 Column(Modifier.weight(1f)) {
-                                    Text(summary.resident.name, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, color = TextPrimary)
+                                    Text(summary.resident.name.uppercase(), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, color = TextPrimary)
                                     Text(
                                         "Target: Rp ${fmt.format(summary.participant.targetAmount)}",
                                         style = MaterialTheme.typography.bodySmall, color = TextSecondary

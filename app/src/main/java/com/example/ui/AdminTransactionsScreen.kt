@@ -125,6 +125,9 @@ fun AdminTransactionsScreen(
                         onCreateReversal = if (tx.type == TransactionType.PAYMENT) ({
                             selectedTx = tx
                             showReversalDialog = true
+                        }) else null,
+                        onEdit = if (tx.type == TransactionType.PAYMENT) ({
+                            editingTx = tx
                         }) else null
                     )
                 }
@@ -154,6 +157,23 @@ fun AdminTransactionsScreen(
             }
         )
     }
+
+    var editingTx by remember { mutableStateOf<PaymentTransaction?>(null) }
+    if (editingTx != null) {
+        EditTransactionDialog(
+            tx = editingTx!!,
+            fmt = fmt,
+            onDismiss = { editingTx = null },
+            onSave = { newAmount, newMethod, newNote ->
+                coroutineScope.launch {
+                    repository.editTransaction(editingTx!!.transactionId, newAmount, newMethod, newNote)
+                    successMsg = "Transaksi berhasil diperbarui."
+                    editingTx = null
+                    loadTransactions()
+                }
+            }
+        )
+    }
 }
 
 @Composable
@@ -161,7 +181,8 @@ fun TransactionListItem(
     tx: PaymentTransaction,
     fmt: NumberFormat,
     sdf: SimpleDateFormat,
-    onCreateReversal: (() -> Unit)? = null
+    onCreateReversal: (() -> Unit)? = null,
+    onEdit: (() -> Unit)? = null
 ) {
     val isReversal = tx.type == TransactionType.REVERSAL
     val amountColor = if (isReversal) AccentDanger else OfficerPrimary
@@ -182,51 +203,35 @@ fun TransactionListItem(
         ) {
             Box(
                 modifier = Modifier
-                    .size(40.dp)
-                    .clip(RoundedCornerShape(20.dp))
+                    .size(42.dp)
+                    .clip(RoundedCornerShape(21.dp))
                     .background(if (isReversal) Color(0xFFFEE2E2) else AdminLight),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
-                    if (isReversal) Icons.Default.Undo else Icons.Default.Payments,
-                    null,
-                    tint = if (isReversal) AccentDanger else AdminPrimary,
-                    modifier = Modifier.size(20.dp)
+                    imageVector = if (isReversal) Icons.Default.Undo else Icons.Default.Receipt,
+                    contentDescription = null,
+                    tint = if (isReversal) AccentDanger else AdminPrimary
                 )
             }
             Spacer(Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (isReversal) {
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(6.dp))
-                                .background(Color(0xFFFEE2E2))
-                                .padding(horizontal = 6.dp, vertical = 2.dp)
-                        ) {
-                            Text("REVERSAL", style = MaterialTheme.typography.labelSmall, color = AccentDanger, fontWeight = FontWeight.Bold)
-                        }
-                        Spacer(Modifier.width(6.dp))
-                    }
-                    Text(
-                        methodLabel(tx.paymentMethod),
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.SemiBold,
-                        color = TextPrimary
-                    )
-                }
+                Text(
+                    tx.transactionId,
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = TextPrimary
+                )
+                Text(
+                    methodLabel(tx.paymentMethod),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextSecondary
+                )
                 Text(
                     sdf.format(Date(tx.paidAtDeviceEpochMs)),
                     style = MaterialTheme.typography.bodySmall,
                     color = TextSecondary
                 )
-                if (tx.note.isNotEmpty()) {
-                    Text(
-                        tx.note,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = TextDisabled
-                    )
-                }
             }
             Column(horizontalAlignment = Alignment.End) {
                 Text(
@@ -235,14 +240,25 @@ fun TransactionListItem(
                     fontWeight = FontWeight.Bold,
                     color = amountColor
                 )
-                if (onCreateReversal != null) {
-                    Spacer(Modifier.height(4.dp))
-                    TextButton(
-                        onClick = onCreateReversal,
-                        contentPadding = PaddingValues(0.dp),
-                        modifier = Modifier.height(24.dp)
-                    ) {
-                        Text("Batalkan", style = MaterialTheme.typography.labelSmall, color = AccentDanger)
+                Row {
+                    if (onEdit != null) {
+                        TextButton(
+                            onClick = onEdit,
+                            contentPadding = PaddingValues(0.dp),
+                            modifier = Modifier.height(24.dp)
+                        ) {
+                            Text("Edit", style = MaterialTheme.typography.labelSmall, color = AdminPrimary)
+                        }
+                    }
+                    if (onCreateReversal != null) {
+                        Spacer(Modifier.width(8.dp))
+                        TextButton(
+                            onClick = onCreateReversal,
+                            contentPadding = PaddingValues(0.dp),
+                            modifier = Modifier.height(24.dp)
+                        ) {
+                            Text("Batalkan", style = MaterialTheme.typography.labelSmall, color = AccentDanger)
+                        }
                     }
                 }
             }
@@ -308,12 +324,76 @@ private fun ReversalDialog(
                     if (reason.isBlank()) errorMsg = "Alasan wajib diisi."
                     else onConfirm(reason.trim())
                 },
-                colors = ButtonDefaults.buttonColors(containerColor = AccentDanger),
-                shape = RoundedCornerShape(12.dp)
+                colors = ButtonDefaults.buttonColors(containerColor = AccentDanger)
             ) { Text("Konfirmasi Batalkan") }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) { Text("Batal", color = TextSecondary) }
+        }
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun EditTransactionDialog(
+    tx: PaymentTransaction,
+    fmt: NumberFormat,
+    onDismiss: () -> Unit,
+    onSave: (Long, PaymentMethod, String) -> Unit
+) {
+    var rawAmount by remember { mutableStateOf(tx.amount.toString()) }
+    var selectedMethod by remember { mutableStateOf(tx.paymentMethod) }
+    var note by remember { mutableStateOf(tx.note) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = AppSurface,
+        shape = RoundedCornerShape(20.dp),
+        title = { Text("Edit Transaksi Pembayaran", fontWeight = FontWeight.Bold, color = AdminPrimary) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("Perbaiki nominal atau metode pembayaran:", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+                OutlinedTextField(
+                    value = rawAmount,
+                    onValueChange = { rawAmount = it.filter { ch -> ch.isDigit() } },
+                    label = { Text("Nominal Baru (Rp)") },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp)
+                )
+                Text("Metode Pembayaran:", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    PaymentMethod.values().forEach { m ->
+                        FilterChip(
+                            selected = selectedMethod == m,
+                            onClick = { selectedMethod = m },
+                            label = { Text(methodLabel(m)) }
+                        )
+                    }
+                }
+                OutlinedTextField(
+                    value = note,
+                    onValueChange = { note = it },
+                    label = { Text("Catatan") },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp)
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    val amt = rawAmount.toLongOrNull() ?: tx.amount
+                    onSave(amt, selectedMethod, note)
+                },
+                colors = ButtonDefaults.buttonColors(containerColor = AdminPrimary)
+            ) {
+                Text("Simpan")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Batal")
+            }
         }
     )
 }

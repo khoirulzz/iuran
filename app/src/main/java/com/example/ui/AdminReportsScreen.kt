@@ -51,9 +51,17 @@ fun AdminReportsScreen(
         isLoading = false
     }
 
+    var residentSummariesMap by remember { mutableStateOf<Map<String, List<ResidentPaymentSummary>>>(emptyMap()) }
+
     LaunchedEffect(selectedActivityId) {
         if (selectedActivityId != null) {
             transactions = repository.getAllTransactions(selectedActivityId)
+            val participants = repository.getParticipants(selectedActivityId!!)
+            val list = mutableListOf<ResidentPaymentSummary>()
+            for (p in participants) {
+                repository.getResidentSummary(selectedActivityId!!, p)?.let { list.add(it) }
+            }
+            residentSummariesMap = residentSummariesMap + (selectedActivityId!! to list.sortedBy { it.resident.name.uppercase() })
         }
     }
 
@@ -181,7 +189,8 @@ fun AdminReportsScreen(
                         selectedActivityId = if (selectedActivityId == summary.activity.id) null
                         else summary.activity.id
                     },
-                    transactions = if (selectedActivityId == summary.activity.id) transactions else emptyList()
+                    transactions = if (selectedActivityId == summary.activity.id) transactions else emptyList(),
+                    residentSummaries = if (selectedActivityId == summary.activity.id) (residentSummariesMap[summary.activity.id] ?: emptyList()) else emptyList()
                 )
                 Spacer(Modifier.height(4.dp))
             }
@@ -195,7 +204,8 @@ private fun ActivityReportCard(
     summary: ActivitySummary,
     isSelected: Boolean,
     onClick: () -> Unit,
-    transactions: List<PaymentTransaction>
+    transactions: List<PaymentTransaction>,
+    residentSummaries: List<ResidentPaymentSummary>
 ) {
     val fmt = NumberFormat.getNumberInstance(Locale("id", "ID"))
 
@@ -211,42 +221,36 @@ private fun ActivityReportCard(
         Column(modifier = Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        summary.activity.name,
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = TextPrimary
-                    )
-                    Text(
-                        "Rp ${fmt.format(summary.totalCollected)} / Rp ${fmt.format(summary.totalTarget)}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = TextSecondary
-                    )
+                    Text(summary.activity.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Text("Target: Rp ${fmt.format(summary.totalTarget)}", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
                 }
-                Text(
-                    "${summary.progressPercent}%",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = AdminPrimary
-                )
+                StatusBadge(summary.activity.status)
             }
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(10.dp))
+
+            val fraction = if (summary.totalTarget == 0L) 0f else (summary.totalCollected.toFloat() / summary.totalTarget).coerceIn(0f, 1f)
             LinearProgressIndicator(
-                progress = { summary.progressFraction },
-                modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)),
+                progress = { fraction },
+                modifier = Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(4.dp)),
                 color = AdminPrimary,
-                trackColor = AdminLight
+                trackColor = Color(0xFFE2E8F0)
             )
             Spacer(Modifier.height(8.dp))
+
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                StatusCount("✓ Lunas", summary.countPaid, OfficerPrimary)
-                StatusCount("◑ Cicil", summary.countPartial, AccentAmber)
-                StatusCount("✗ Belum", summary.countUnpaid, AccentDanger)
-                if (summary.countOverpaid > 0)
-                    StatusCount("↑ Lebih", summary.countOverpaid, AccentPurple)
+                Text(
+                    "Terkumpul: Rp ${fmt.format(summary.totalCollected)} (${summary.progressPercent}%)",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = OfficerPrimary
+                )
+                Text(
+                    "Lunas: ${summary.countPaid}/${summary.countPaid + summary.countPartial + summary.countUnpaid}",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = TextSecondary
+                )
             }
 
-            // Expanded: breakdown per metode pembayaran
             if (isSelected && transactions.isNotEmpty()) {
                 Spacer(Modifier.height(12.dp))
                 Divider(color = BorderColor)
@@ -283,7 +287,7 @@ private fun ActivityReportCard(
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                 val context = androidx.compose.ui.platform.LocalContext.current
                 OutlinedButton(
-                    onClick = { exportActivityReportToPdf(context, summary, transactions) },
+                    onClick = { exportActivityReportToPdf(context, summary, residentSummaries) },
                     shape = RoundedCornerShape(10.dp),
                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
                 ) {
@@ -299,61 +303,89 @@ private fun ActivityReportCard(
 private fun exportActivityReportToPdf(
     context: android.content.Context,
     summary: ActivitySummary,
-    transactions: List<PaymentTransaction>
+    residentSummaries: List<ResidentPaymentSummary>
 ) {
     try {
         val pdfDoc = android.graphics.pdf.PdfDocument()
-        val pageInfo = android.graphics.pdf.PdfDocument.PageInfo.Builder(595, 842, 1).create()
-        val page = pdfDoc.startPage(pageInfo)
-        val canvas = page.canvas
-        val paint = android.graphics.Paint()
-        val titlePaint = android.graphics.Paint()
         val fmt = NumberFormat.getNumberInstance(Locale("id", "ID"))
-
-        titlePaint.color = android.graphics.Color.rgb(30, 41, 59)
-        titlePaint.textSize = 16f
-        titlePaint.isFakeBoldText = true
-
-        paint.color = android.graphics.Color.rgb(51, 65, 85)
-        paint.textSize = 11f
-
-        var yPos = 45f
-        canvas.drawText("LAPORAN KEGIATAN IURAN GEMPALA", 40f, yPos, titlePaint)
-        yPos += 25f
-
-        paint.textSize = 13f
-        paint.isFakeBoldText = true
-        canvas.drawText("Kegiatan: ${summary.activity.name}", 40f, yPos, paint)
-        yPos += 20f
-
-        paint.textSize = 11f
-        paint.isFakeBoldText = false
-        canvas.drawText("Total Terkumpul: Rp ${fmt.format(summary.totalCollected)} dari Target Rp ${fmt.format(summary.totalTarget)} (${summary.progressPercent}%)", 40f, yPos, paint)
-        yPos += 18f
-        canvas.drawText("Lunas: ${summary.countPaid} Warga | Mencicil: ${summary.countPartial} Warga | Belum Bayar: ${summary.countUnpaid} Warga", 40f, yPos, paint)
-        yPos += 30f
-
-        paint.isFakeBoldText = true
-        canvas.drawText("Kode Transaksi", 40f, yPos, paint)
-        canvas.drawText("Nominal", 250f, yPos, paint)
-        canvas.drawText("Metode", 370f, yPos, paint)
-        canvas.drawText("Tanggal", 460f, yPos, paint)
-        yPos += 16f
-        paint.isFakeBoldText = false
-
         val sdf = java.text.SimpleDateFormat("dd/MM/yyyy", Locale("id", "ID"))
-        val listToDraw = if (transactions.isNotEmpty()) transactions.take(35) else emptyList()
-        if (listToDraw.isEmpty()) {
-            canvas.drawText("- Belum ada rincian transaksi tersimpan -", 40f, yPos, paint)
+        val printDate = sdf.format(java.util.Date())
+
+        var pageNum = 1
+        var pageInfo = android.graphics.pdf.PdfDocument.PageInfo.Builder(595, 842, pageNum).create()
+        var page = pdfDoc.startPage(pageInfo)
+        var canvas = page.canvas
+
+        val titlePaint = android.graphics.Paint().apply {
+            color = android.graphics.Color.rgb(30, 41, 59)
+            textSize = 16f
+            isFakeBoldText = true
+        }
+        val subPaint = android.graphics.Paint().apply {
+            color = android.graphics.Color.rgb(51, 65, 85)
+            textSize = 13f
+            isFakeBoldText = true
+        }
+        val datePaint = android.graphics.Paint().apply {
+            color = android.graphics.Color.rgb(100, 116, 139)
+            textSize = 10f
+        }
+        val headerPaint = android.graphics.Paint().apply {
+            color = android.graphics.Color.rgb(30, 41, 59)
+            textSize = 11f
+            isFakeBoldText = true
+        }
+        val rowPaint = android.graphics.Paint().apply {
+            color = android.graphics.Color.rgb(51, 65, 85)
+            textSize = 11f
+        }
+
+        fun drawHeaders(c: android.graphics.Canvas, y: Float): Float {
+            var curY = y
+            c.drawText("Laporan Penarikan Iuran Warga", 40f, curY, titlePaint)
+            curY += 22f
+            c.drawText(summary.activity.name, 40f, curY, subPaint)
+            curY += 18f
+            c.drawText("tanggal cetak: $printDate", 40f, curY, datePaint)
+            curY += 25f
+
+            c.drawText("NO", 40f, curY, headerPaint)
+            c.drawText("Nama", 80f, curY, headerPaint)
+            c.drawText("Pembayaran", 320f, curY, headerPaint)
+            c.drawText("Status", 460f, curY, headerPaint)
+            curY += 18f
+            return curY
+        }
+
+        var yPos = drawHeaders(canvas, 45f)
+
+        val sortedList = residentSummaries.sortedBy { it.resident.name.uppercase() }
+        if (sortedList.isEmpty()) {
+            canvas.drawText("- Belum ada data warga untuk kegiatan ini -", 40f, yPos, rowPaint)
         } else {
-            for (tx in listToDraw) {
-                if (yPos > 780f) break
-                val txLabel = if (tx.transactionId.length > 20) tx.transactionId.take(20) + "..." else tx.transactionId
-                canvas.drawText(txLabel, 40f, yPos, paint)
-                canvas.drawText("Rp ${fmt.format(tx.amount)}", 250f, yPos, paint)
-                canvas.drawText(tx.paymentMethod.name, 370f, yPos, paint)
-                canvas.drawText(sdf.format(java.util.Date(tx.paidAtDeviceEpochMs)), 460f, yPos, paint)
-                yPos += 16f
+            sortedList.forEachIndexed { idx, resSummary ->
+                if (yPos > 780f) {
+                    pdfDoc.finishPage(page)
+                    pageNum++
+                    pageInfo = android.graphics.pdf.PdfDocument.PageInfo.Builder(595, 842, pageNum).create()
+                    page = pdfDoc.startPage(pageInfo)
+                    canvas = page.canvas
+                    yPos = drawHeaders(canvas, 45f)
+                }
+                val noStr = "${idx + 1}"
+                val namaStr = resSummary.resident.name.uppercase()
+                val bayarStr = "Rp ${fmt.format(resSummary.totalPaid)}"
+                val statusStr = when (resSummary.paymentStatus) {
+                    PaymentStatus.PAID, PaymentStatus.OVERPAID -> "Lunas"
+                    PaymentStatus.PARTIAL -> "Kurang"
+                    PaymentStatus.UNPAID -> "Belum Bayar"
+                }
+
+                canvas.drawText(noStr, 40f, yPos, rowPaint)
+                canvas.drawText(namaStr, 80f, yPos, rowPaint)
+                canvas.drawText(bayarStr, 320f, yPos, rowPaint)
+                canvas.drawText(statusStr, 460f, yPos, rowPaint)
+                yPos += 18f
             }
         }
 
@@ -367,7 +399,7 @@ private fun exportActivityReportToPdf(
         pdfDoc.close()
         out.close()
 
-        android.widget.Toast.makeText(context, "Laporan PDF berhasil diunduh ke folder Download: ${fileName}", android.widget.Toast.LENGTH_LONG).show()
+        android.widget.Toast.makeText(context, "Laporan PDF berhasil diunduh ke folder Download: $fileName", android.widget.Toast.LENGTH_LONG).show()
     } catch (e: Exception) {
         android.widget.Toast.makeText(context, "Gagal mengunduh PDF: ${e.message}", android.widget.Toast.LENGTH_LONG).show()
     }

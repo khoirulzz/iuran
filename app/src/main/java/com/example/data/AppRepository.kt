@@ -65,6 +65,15 @@ class AppRepository(
         }
     }
 
+    private suspend fun DocumentReference.updateOfflineFirst(updates: Map<String, Any>) {
+        val task = this.update(updates)
+        try {
+            withTimeout(1500) { task.await() }
+        } catch (e: Exception) {
+            // Data tersimpan di SQLite lokal Firestore
+        }
+    }
+
     private suspend fun DocumentReference.updateOfflineFirst(field: String, value: Any, vararg moreFields: Any) {
         val task = this.update(field, value, *moreFields)
         try {
@@ -139,13 +148,15 @@ class AppRepository(
 
     suspend fun saveResident(resident: Resident): Result<String> = runCatching {
         val now = System.currentTimeMillis()
-        val normalized = resident.name.trim().lowercase()
+        val uppercaseName = resident.name.trim().uppercase()
+        val normalized = uppercaseName.lowercase()
         val residentId: String
         if (resident.id.isEmpty()) {
             val ref = firestore.collection("residents").document()
             residentId = ref.id
             ref.setOfflineFirst(resident.copy(
                 id = residentId,
+                name = uppercaseName,
                 nameNormalized = normalized,
                 createdAt = now,
                 updatedAt = now
@@ -153,7 +164,7 @@ class AppRepository(
         } else {
             residentId = resident.id
             firestore.collection("residents").document(residentId)
-                .setOfflineFirst(resident.copy(nameNormalized = normalized, updatedAt = now))
+                .setOfflineFirst(resident.copy(name = uppercaseName, nameNormalized = normalized, updatedAt = now))
         }
 
         if (resident.isActive) {
@@ -166,6 +177,10 @@ class AppRepository(
             }
         }
         residentId
+    }
+
+    suspend fun deleteResident(residentId: String): Result<Unit> = runCatching {
+        firestore.collection("residents").document(residentId).deleteOfflineFirst()
     }
 
     suspend fun deactivateResident(residentId: String): Result<Unit> = runCatching {
@@ -301,29 +316,31 @@ class AppRepository(
         val docs = snapshot.documents.mapNotNull { doc ->
             doc.toObject(ActivityParticipant::class.java)?.copy(id = doc.id)
         }.filter { it.isIncluded }
-        if (docs.isNotEmpty()) {
-            docs
-        } else {
-            val activity = getActivityById(activityId)
-            val residents = getResidents(activeOnly = true)
-            if (activity != null && residents.isNotEmpty()) {
-                val residentIds = residents.map { it.id }
-                upsertParticipants(activityId, residentIds, activity.defaultTargetAmount)
-                residents.map { res ->
-                    ActivityParticipant(
-                        id = "${activityId}_${res.id}",
-                        activityId = activityId,
-                        residentId = res.id,
-                        targetAmount = activity.defaultTargetAmount,
-                        isIncluded = true,
-                        createdAt = System.currentTimeMillis(),
-                        updatedAt = System.currentTimeMillis()
-                    )
-                }
-            } else {
-                emptyList()
+
+        val activity = getActivityById(activityId)
+        val residents = getResidents(activeOnly = true)
+        val existingResidentIds = docs.map { it.residentId }.toSet()
+        val missingResidents = residents.filter { it.id !in existingResidentIds }
+
+        val newDocs = if (missingResidents.isNotEmpty() && activity != null) {
+            val missingIds = missingResidents.map { it.id }
+            upsertParticipants(activityId, missingIds, activity.defaultTargetAmount)
+            missingResidents.map { res ->
+                ActivityParticipant(
+                    id = "${activityId}_${res.id}",
+                    activityId = activityId,
+                    residentId = res.id,
+                    targetAmount = activity.defaultTargetAmount,
+                    isIncluded = true,
+                    createdAt = System.currentTimeMillis(),
+                    updatedAt = System.currentTimeMillis()
+                )
             }
+        } else {
+            emptyList()
         }
+
+        (docs + newDocs)
     }.getOrDefault(emptyList())
 
     suspend fun saveParticipant(participant: ActivityParticipant): Result<String> = runCatching {
@@ -439,6 +456,20 @@ class AppRepository(
             .setOfflineFirst(transaction)
 
         transactionId
+    }
+
+    suspend fun editTransaction(
+        transactionId: String,
+        newAmount: Long,
+        newMethod: PaymentMethod,
+        newNote: String
+    ): Result<Unit> = runCatching {
+        firestore.collection("transactions").document(transactionId)
+            .updateOfflineFirst(
+                "amount", newAmount,
+                "paymentMethod", newMethod,
+                "note", newNote
+            )
     }
 
     suspend fun createReversal(

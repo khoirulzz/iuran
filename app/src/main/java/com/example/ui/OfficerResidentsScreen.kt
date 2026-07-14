@@ -69,7 +69,7 @@ fun OfficerResidentsScreen(
             ResidentFilterStatus.OVERPAID -> s.paymentStatus == PaymentStatus.OVERPAID
         }
         matchSearch && matchFilter
-    }
+    }.sortedBy { it.resident.name.uppercase() }
 
     Scaffold(
         topBar = {
@@ -236,7 +236,7 @@ private fun OfficerResidentCard(
                 Spacer(Modifier.width(12.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        summary.resident.name,
+                        summary.resident.name.uppercase(),
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.SemiBold,
                         color = TextPrimary
