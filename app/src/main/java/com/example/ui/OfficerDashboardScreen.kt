@@ -42,11 +42,14 @@ fun OfficerDashboardScreen(
     fun refreshActivities(showFeedback: Boolean = false) {
         if (officerId.isBlank()) return
         coroutineScope.launch {
-            if (showFeedback) isLoading = true
+            if (showFeedback) {
+                isLoading = true
+                repository.syncFromServer()
+            }
             activities = repository.getActiveActivitiesForOfficer(officerId)
             isLoading = false
             if (showFeedback) {
-                snackbarHostState.showSnackbar("Sinkronisasi kegiatan berhasil diperbarui")
+                snackbarHostState.showSnackbar("Sinkronisasi dari server berhasil")
             }
         }
     }

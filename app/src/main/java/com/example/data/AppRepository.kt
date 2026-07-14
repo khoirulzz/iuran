@@ -1,11 +1,17 @@
 package com.example.data
 
 import com.example.domain.*
+import com.google.firebase.firestore.DocumentReference
+import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
+import com.google.firebase.firestore.QuerySnapshot
+import com.google.firebase.firestore.Source
+import com.google.firebase.firestore.WriteBatch
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withTimeout
 import java.security.SecureRandom
 import java.text.SimpleDateFormat
 import java.util.*
@@ -16,6 +22,73 @@ class AppRepository(
     private val firestore: FirebaseFirestore,
     private val sessionStore: SessionStore
 ) {
+
+    // ===================== OFFLINE-FIRST HELPERS =====================
+    private suspend fun Query.getOfflineFirst(): QuerySnapshot {
+        return try {
+            val cached = this.get(Source.CACHE).await()
+            if (!cached.isEmpty) cached else {
+                withTimeout(2500) { this.get(Source.DEFAULT).await() }
+            }
+        } catch (e: Exception) {
+            try {
+                this.get(Source.CACHE).await()
+            } catch (e2: Exception) {
+                this.get(Source.DEFAULT).await()
+            }
+        }
+    }
+
+    private suspend fun DocumentReference.getOfflineFirst(): DocumentSnapshot {
+        return try {
+            val cached = this.get(Source.CACHE).await()
+            if (cached.exists()) cached else {
+                withTimeout(2500) { this.get(Source.DEFAULT).await() }
+            }
+        } catch (e: Exception) {
+            try {
+                this.get(Source.CACHE).await()
+            } catch (e2: Exception) {
+                this.get(Source.DEFAULT).await()
+            }
+        }
+    }
+
+    private suspend fun <T : Any> DocumentReference.setOfflineFirst(data: T) {
+        val task = this.set(data)
+        try {
+            withTimeout(1500) { task.await() }
+        } catch (e: Exception) {
+            // Data sudah tersimpan lokal di SQLite Firestore & disinkron otomatis saat sinyal tersedia
+        }
+    }
+
+    private suspend fun DocumentReference.updateOfflineFirst(vararg fields: Any) {
+        val task = this.update(*fields)
+        try {
+            withTimeout(1500) { task.await() }
+        } catch (e: Exception) {
+            // Abaikan timeout offline
+        }
+    }
+
+    private suspend fun DocumentReference.deleteOfflineFirst() {
+        val task = this.delete()
+        try {
+            withTimeout(1500) { task.await() }
+        } catch (e: Exception) {
+            // Abaikan timeout offline
+        }
+    }
+
+    private suspend fun WriteBatch.commitOfflineFirst() {
+        val task = this.commit()
+        try {
+            withTimeout(1500) { task.await() }
+        } catch (e: Exception) {
+            // Abaikan timeout offline
+        }
+    }
 
     // ===================== AUTH =====================
 
@@ -49,7 +122,7 @@ class AppRepository(
     // ===================== RESIDENTS =====================
 
     suspend fun getResidents(activeOnly: Boolean = false): List<Resident> = runCatching {
-        val snapshot = firestore.collection("residents").get().await()
+        val snapshot = firestore.collection("residents").getOfflineFirst()
         snapshot.documents.mapNotNull { doc ->
             doc.toObject(Resident::class.java)?.copy(id = doc.id)
         }
@@ -58,7 +131,7 @@ class AppRepository(
     }.getOrDefault(emptyList())
 
     suspend fun getResident(residentId: String): Resident? = runCatching {
-        val doc = firestore.collection("residents").document(residentId).get().await()
+        val doc = firestore.collection("residents").document(residentId).getOfflineFirst()
         if (doc.exists()) doc.toObject(Resident::class.java)!!.copy(id = doc.id) else null
     }.getOrNull()
 
@@ -69,17 +142,16 @@ class AppRepository(
         if (resident.id.isEmpty()) {
             val ref = firestore.collection("residents").document()
             residentId = ref.id
-            ref.set(resident.copy(
+            ref.setOfflineFirst(resident.copy(
                 id = residentId,
                 nameNormalized = normalized,
                 createdAt = now,
                 updatedAt = now
-            )).await()
+            ))
         } else {
             residentId = resident.id
             firestore.collection("residents").document(residentId)
-                .set(resident.copy(nameNormalized = normalized, updatedAt = now))
-                .await()
+                .setOfflineFirst(resident.copy(nameNormalized = normalized, updatedAt = now))
         }
 
         if (resident.isActive) {
@@ -96,20 +168,19 @@ class AppRepository(
 
     suspend fun deactivateResident(residentId: String): Result<Unit> = runCatching {
         firestore.collection("residents").document(residentId)
-            .update("isActive", false, "updatedAt", System.currentTimeMillis())
-            .await()
+            .updateOfflineFirst("isActive", false, "updatedAt", System.currentTimeMillis())
     }
 
     // ===================== OFFICERS =====================
 
     suspend fun getOfficers(): List<Officer> = runCatching {
-        firestore.collection("officers").orderBy("name").get().await().documents.mapNotNull { doc ->
+        firestore.collection("officers").orderBy("name").getOfflineFirst().documents.mapNotNull { doc ->
             doc.toObject(Officer::class.java)?.copy(id = doc.id)
         }
     }.getOrDefault(emptyList())
 
     suspend fun getOfficer(officerId: String): Officer? = runCatching {
-        val doc = firestore.collection("officers").document(officerId).get().await()
+        val doc = firestore.collection("officers").document(officerId).getOfflineFirst()
         if (doc.exists()) doc.toObject(Officer::class.java)!!.copy(id = doc.id) else null
     }.getOrNull()
 
@@ -120,15 +191,14 @@ class AppRepository(
         phone: String
     ): Result<String> = runCatching {
         val usernameNorm = username.trim().lowercase()
-        // Periksa keunikan username
         val existing = firestore.collection("officers")
-            .whereEqualTo("usernameNormalized", usernameNorm).limit(1).get().await()
+            .whereEqualTo("usernameNormalized", usernameNorm).limit(1).getOfflineFirst()
         if (!existing.isEmpty) throw Exception("Username '$username' sudah digunakan.")
 
         val (hash, salt) = hashPbkdf2Password(passwordRaw)
         val now = System.currentTimeMillis()
         val ref = firestore.collection("officers").document()
-        ref.set(Officer(
+        ref.setOfflineFirst(Officer(
             id = ref.id,
             name = name.trim(),
             username = username.trim(),
@@ -140,31 +210,29 @@ class AppRepository(
             isActive = true,
             createdAt = now,
             updatedAt = now
-        )).await()
+        ))
         ref.id
     }
 
     suspend fun updateOfficer(officer: Officer): Result<Unit> = runCatching {
         firestore.collection("officers").document(officer.id)
-            .set(officer.copy(updatedAt = System.currentTimeMillis()))
-            .await()
+            .setOfflineFirst(officer.copy(updatedAt = System.currentTimeMillis()))
     }
 
     suspend fun resetOfficerPassword(officerId: String, newPasswordRaw: String): Result<Unit> = runCatching {
         val (hash, salt) = hashPbkdf2Password(newPasswordRaw)
         firestore.collection("officers").document(officerId)
-            .update(
+            .updateOfflineFirst(
                 "passwordHash", hash,
                 "passwordSalt", salt,
                 "passwordIterations", 120000,
                 "updatedAt", System.currentTimeMillis()
-            ).await()
+            )
     }
 
     suspend fun setOfficerActiveStatus(officerId: String, isActive: Boolean): Result<Unit> = runCatching {
         firestore.collection("officers").document(officerId)
-            .update("isActive", isActive, "updatedAt", System.currentTimeMillis())
-            .await()
+            .updateOfflineFirst("isActive", isActive, "updatedAt", System.currentTimeMillis())
     }
 
     // ===================== ACTIVITIES =====================
@@ -172,29 +240,26 @@ class AppRepository(
     suspend fun getActivities(): List<IuranActivity> = runCatching {
         firestore.collection("activities")
             .orderBy("startAtEpochMs", Query.Direction.DESCENDING)
-            .get().await().documents.mapNotNull { doc ->
+            .getOfflineFirst().documents.mapNotNull { doc ->
                 doc.toObject(IuranActivity::class.java)?.copy(id = doc.id)
             }
     }.getOrDefault(emptyList())
 
     suspend fun getActivityById(activityId: String): IuranActivity? = runCatching {
-        val doc = firestore.collection("activities").document(activityId).get().await()
+        val doc = firestore.collection("activities").document(activityId).getOfflineFirst()
         if (doc.exists()) doc.toObject(IuranActivity::class.java)!!.copy(id = doc.id) else null
     }.getOrNull()
 
     suspend fun getActiveActivitiesForOfficer(officerId: String): List<IuranActivity> = runCatching {
-        // Coba query dengan string "ACTIVE" (cara Firestore menyimpan enum Kotlin)
         val snapshot = firestore.collection("activities")
             .whereEqualTo("status", ActivityStatus.ACTIVE.name)
-            .get().await()
+            .getOfflineFirst()
         val fromEnum = snapshot.documents.mapNotNull { doc ->
             doc.toObject(IuranActivity::class.java)?.copy(id = doc.id)
         }
-        // Fallback: jika kosong, ambil semua kegiatan dan filter status di sisi klien
-        // (menangani kasus dimana status disimpan sebagai objek atau format lain)
         val activities = fromEnum.ifEmpty {
             firestore.collection("activities")
-                .get().await().documents.mapNotNull { doc ->
+                .getOfflineFirst().documents.mapNotNull { doc ->
                     doc.toObject(IuranActivity::class.java)?.copy(id = doc.id)
                 }.filter { it.status == ActivityStatus.ACTIVE }
         }
@@ -209,11 +274,11 @@ class AppRepository(
         if (activity.id.isEmpty()) {
             val ref = firestore.collection("activities").document()
             activityId = ref.id
-            ref.set(activity.copy(id = activityId, createdAt = now, updatedAt = now)).await()
+            ref.setOfflineFirst(activity.copy(id = activityId, createdAt = now, updatedAt = now))
         } else {
             activityId = activity.id
             firestore.collection("activities").document(activityId)
-                .set(activity.copy(updatedAt = now)).await()
+                .setOfflineFirst(activity.copy(updatedAt = now))
         }
 
         val existingParticipants = getParticipants(activityId).map { it.residentId }.toSet()
@@ -230,7 +295,7 @@ class AppRepository(
     suspend fun getParticipants(activityId: String): List<ActivityParticipant> = runCatching {
         val snapshot = firestore.collection("activity_participants")
             .whereEqualTo("activityId", activityId)
-            .get().await()
+            .getOfflineFirst()
         val docs = snapshot.documents.mapNotNull { doc ->
             doc.toObject(ActivityParticipant::class.java)?.copy(id = doc.id)
         }.filter { it.isIncluded }
@@ -263,11 +328,11 @@ class AppRepository(
         val now = System.currentTimeMillis()
         if (participant.id.isEmpty()) {
             val ref = firestore.collection("activity_participants").document()
-            ref.set(participant.copy(id = ref.id, createdAt = now, updatedAt = now)).await()
+            ref.setOfflineFirst(participant.copy(id = ref.id, createdAt = now, updatedAt = now))
             ref.id
         } else {
             firestore.collection("activity_participants").document(participant.id)
-                .set(participant.copy(updatedAt = now)).await()
+                .setOfflineFirst(participant.copy(updatedAt = now))
             participant.id
         }
     }
@@ -292,7 +357,7 @@ class AppRepository(
                 updatedAt = now
             ))
         }
-        batch.commit().await()
+        batch.commitOfflineFirst()
     }
 
     // ===================== TRANSACTIONS =====================
@@ -300,7 +365,7 @@ class AppRepository(
     suspend fun getTransactions(activityId: String, residentId: String): List<PaymentTransaction> = runCatching {
         firestore.collection("transactions")
             .whereEqualTo("activityId", activityId)
-            .get().await().documents.mapNotNull { doc ->
+            .getOfflineFirst().documents.mapNotNull { doc ->
                 doc.toObject(PaymentTransaction::class.java)
             }.filter { it.residentId == residentId }
             .sortedByDescending { it.paidAtDeviceEpochMs }
@@ -310,13 +375,13 @@ class AppRepository(
         val list = if (activityId != null) {
             firestore.collection("transactions")
                 .whereEqualTo("activityId", activityId)
-                .get().await().documents.mapNotNull { doc ->
+                .getOfflineFirst().documents.mapNotNull { doc ->
                     doc.toObject(PaymentTransaction::class.java)
                 }
         } else {
             firestore.collection("transactions")
                 .limit(200)
-                .get().await().documents.mapNotNull { doc ->
+                .getOfflineFirst().documents.mapNotNull { doc ->
                     doc.toObject(PaymentTransaction::class.java)
                 }
         }
@@ -326,7 +391,7 @@ class AppRepository(
     suspend fun getMyTransactions(officerId: String): List<PaymentTransaction> = runCatching {
         firestore.collection("transactions")
             .whereEqualTo("officerId", officerId)
-            .get().await().documents.mapNotNull { doc ->
+            .getOfflineFirst().documents.mapNotNull { doc ->
                 doc.toObject(PaymentTransaction::class.java)
             }
             .sortedByDescending { it.paidAtDeviceEpochMs }
@@ -369,8 +434,7 @@ class AppRepository(
 
         firestore.collection("transactions")
             .document(transactionId)
-            .set(transaction)
-            .await()
+            .setOfflineFirst(transaction)
 
         transactionId
     }
@@ -410,10 +474,21 @@ class AppRepository(
 
         firestore.collection("transactions")
             .document(reversalId)
-            .set(reversal)
-            .await()
+            .setOfflineFirst(reversal)
 
         reversalId
+    }
+
+    /** Sinkronisasi manual dari server (khusus dipanggil saat online / tombol sinkronisasi) */
+    suspend fun syncFromServer(): Result<String> = runCatching {
+        var count = 0
+        val acts = firestore.collection("activities").get(Source.SERVER).await()
+        count += acts.size()
+        val res = firestore.collection("residents").get(Source.SERVER).await()
+        count += res.size()
+        val txs = firestore.collection("transactions").limit(200).get(Source.SERVER).await()
+        count += txs.size()
+        "Sinkronisasi berhasil memuat $count dokumen dari server."
     }
 
     // ===================== REPORT HELPERS =====================

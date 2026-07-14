@@ -194,11 +194,12 @@ private fun AdminDashboardContent(
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp, vertical = 12.dp)
                     .clickable {
-                        android.widget.Toast.makeText(
-                            context,
-                            "Penyimpanan Offline Aktif. Data tersimpan aman & otomatis disinkronkan ke server saat online.",
-                            android.widget.Toast.LENGTH_LONG
-                        ).show()
+                        coroutineScope.launch {
+                            val result = repository.syncFromServer()
+                            val msg = result.getOrElse { "Sinkronisasi offline aktif · Data tersimpan lokal" }
+                            android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_LONG).show()
+                            activities = repository.getActivities()
+                        }
                     },
                 shape = RoundedCornerShape(16.dp),
                 colors = CardDefaults.cardColors(containerColor = AppSurface),
