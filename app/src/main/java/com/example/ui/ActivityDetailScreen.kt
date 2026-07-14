@@ -45,12 +45,7 @@ fun ActivityDetailScreen(
         activity = repository.getActivityById(activityId)
         // Pastikan semua warga aktif terdaftar terlebih dahulu (hanya sekali)
         repository.ensureAllResidentsEnrolled(activityId)
-        val participants = repository.getParticipants(activityId)
-        val list = mutableListOf<ResidentPaymentSummary>()
-        for (p in participants) {
-            repository.getResidentSummary(activityId, p)?.let { list.add(it) }
-        }
-        summaries = list
+        summaries = repository.getAllResidentSummaries(activityId)
         isLoading = false
     }
 

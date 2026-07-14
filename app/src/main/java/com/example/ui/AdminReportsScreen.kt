@@ -60,12 +60,8 @@ fun AdminReportsScreen(
     LaunchedEffect(selectedActivityId) {
         if (selectedActivityId != null) {
             transactions = repository.getAllTransactions(selectedActivityId)
-            val participants = repository.getParticipants(selectedActivityId!!)
-            val list = mutableListOf<ResidentPaymentSummary>()
-            for (p in participants) {
-                repository.getResidentSummary(selectedActivityId!!, p)?.let { list.add(it) }
-            }
-            residentSummariesMap = residentSummariesMap + (selectedActivityId!! to list.sortedBy { it.resident.name.uppercase() })
+            val list = repository.getAllResidentSummaries(selectedActivityId!!)
+            residentSummariesMap = residentSummariesMap + (selectedActivityId!! to list)
         }
     }
 

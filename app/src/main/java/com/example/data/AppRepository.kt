@@ -22,6 +22,23 @@ class AppRepository(
     private val firestore: FirebaseFirestore,
     private val sessionStore: SessionStore
 ) {
+    // ===================== IN-MEMORY CACHE =====================
+    // Cache ini mempercepat navigasi antar tab — tidak perlu re-fetch dari SQLite setiap saat
+    private var cachedResidents: List<Resident>? = null
+    private var cachedActivities: List<IuranActivity>? = null
+    private val cachedParticipants = mutableMapOf<String, List<ActivityParticipant>>()
+    private val cachedSummaries = mutableMapOf<String, List<ResidentPaymentSummary>>()
+
+    fun invalidateCache() {
+        cachedResidents = null
+        cachedActivities = null
+        cachedParticipants.clear()
+        cachedSummaries.clear()
+    }
+    fun invalidateActivityCache(activityId: String) {
+        cachedParticipants.remove(activityId)
+        cachedSummaries.remove(activityId)
+    }
 
     // ===================== OFFLINE-FIRST HELPERS =====================
     private suspend fun Query.getOfflineFirst(): QuerySnapshot {
@@ -131,12 +148,15 @@ class AppRepository(
     // ===================== RESIDENTS =====================
 
     suspend fun getResidents(activeOnly: Boolean = false): List<Resident> = runCatching {
-        val snapshot = firestore.collection("residents").getOfflineFirst()
-        snapshot.documents.mapNotNull { doc ->
-            doc.toObject(Resident::class.java)?.copy(id = doc.id)
+        val all = cachedResidents ?: run {
+            val snapshot = firestore.collection("residents").getOfflineFirst()
+            val list = snapshot.documents.mapNotNull { doc ->
+                doc.toObject(Resident::class.java)?.copy(id = doc.id)
+            }.sortedBy { it.nameNormalized }
+            cachedResidents = list
+            list
         }
-        .filter { if (activeOnly) it.isActive else true }
-        .sortedBy { it.nameNormalized }
+        all.filter { if (activeOnly) it.isActive else true }
     }.getOrDefault(emptyList())
 
     suspend fun getResident(residentId: String): Resident? = runCatching {
@@ -253,11 +273,15 @@ class AppRepository(
     // ===================== ACTIVITIES =====================
 
     suspend fun getActivities(): List<IuranActivity> = runCatching {
-        firestore.collection("activities")
-            .orderBy("startAtEpochMs", Query.Direction.DESCENDING)
-            .getOfflineFirst().documents.mapNotNull { doc ->
-                doc.toObject(IuranActivity::class.java)?.copy(id = doc.id)
-            }
+        cachedActivities ?: run {
+            val list = firestore.collection("activities")
+                .orderBy("startAtEpochMs", Query.Direction.DESCENDING)
+                .getOfflineFirst().documents.mapNotNull { doc ->
+                    doc.toObject(IuranActivity::class.java)?.copy(id = doc.id)
+                }
+            cachedActivities = list
+            list
+        }
     }.getOrDefault(emptyList())
 
     suspend fun getActivityById(activityId: String): IuranActivity? = runCatching {
@@ -308,12 +332,16 @@ class AppRepository(
     // ===================== PARTICIPANTS =====================
 
     suspend fun getParticipants(activityId: String): List<ActivityParticipant> = runCatching {
-        val snapshot = firestore.collection("activity_participants")
-            .whereEqualTo("activityId", activityId)
-            .getOfflineFirst()
-        snapshot.documents.mapNotNull { doc ->
-            doc.toObject(ActivityParticipant::class.java)?.copy(id = doc.id)
-        }.filter { it.isIncluded }
+        cachedParticipants[activityId] ?: run {
+            val snapshot = firestore.collection("activity_participants")
+                .whereEqualTo("activityId", activityId)
+                .getOfflineFirst()
+            val list = snapshot.documents.mapNotNull { doc ->
+                doc.toObject(ActivityParticipant::class.java)?.copy(id = doc.id)
+            }.filter { it.isIncluded }
+            cachedParticipants[activityId] = list
+            list
+        }
     }.getOrDefault(emptyList())
 
     /** Pastikan seluruh warga aktif terdaftar di kegiatan — panggil sekali saat membuka kegiatan */
@@ -439,6 +467,9 @@ class AppRepository(
             .document(transactionId)
             .setOfflineFirst(transaction)
 
+        // Hapus cache summary agar data segar saat kembali ke layar kegiatan
+        invalidateActivityCache(activityId)
+
         transactionId
     }
 
@@ -446,7 +477,8 @@ class AppRepository(
         transactionId: String,
         newAmount: Long,
         newMethod: PaymentMethod,
-        newNote: String
+        newNote: String,
+        activityId: String = ""
     ): Result<Unit> = runCatching {
         firestore.collection("transactions").document(transactionId)
             .updateOfflineFirst(
@@ -454,6 +486,7 @@ class AppRepository(
                 "paymentMethod", newMethod,
                 "note", newNote
             )
+        if (activityId.isNotEmpty()) invalidateActivityCache(activityId)
     }
 
     suspend fun createReversal(
@@ -493,6 +526,7 @@ class AppRepository(
             .document(reversalId)
             .setOfflineFirst(reversal)
 
+        invalidateActivityCache(originalTransaction.activityId)
         reversalId
     }
 
@@ -505,6 +539,8 @@ class AppRepository(
         count += res.size()
         val txs = firestore.collection("transactions").limit(200).get(Source.SERVER).await()
         count += txs.size()
+        // Setelah sync, bersihkan seluruh in-memory cache agar data terbaru tampil
+        invalidateCache()
         "Sinkronisasi berhasil memuat $count dokumen dari server."
     }
 
@@ -537,21 +573,66 @@ class AppRepository(
         )
     }
 
-    /** Hitung rekapan satu kegiatan */
+    /**
+     * Ambil semua ResidentPaymentSummary untuk satu kegiatan dengan SATU query transaksi saja.
+     * Ini jauh lebih cepat dari memanggil getResidentSummary satu per satu (N query menjadi 1).
+     */
+    suspend fun getAllResidentSummaries(activityId: String): List<ResidentPaymentSummary> {
+        cachedSummaries[activityId]?.let { return it }
+
+        val participants = getParticipants(activityId)
+        if (participants.isEmpty()) return emptyList()
+
+        val residents = getResidents().associateBy { it.id }
+
+        // SATU query untuk semua transaksi kegiatan ini
+        val allTx = runCatching {
+            firestore.collection("transactions")
+                .whereEqualTo("activityId", activityId)
+                .getOfflineFirst().documents.mapNotNull { doc ->
+                    doc.toObject(PaymentTransaction::class.java)
+                }
+        }.getOrDefault(emptyList())
+
+        val txByResident = allTx.groupBy { it.residentId }
+
+        val result = participants.mapNotNull { p ->
+            val resident = residents[p.residentId] ?: return@mapNotNull null
+            val txList = txByResident[p.residentId] ?: emptyList()
+            val totalPaid = txList.sumOf { it.amount }
+            val status = when {
+                totalPaid <= 0L -> PaymentStatus.UNPAID
+                totalPaid > p.targetAmount -> PaymentStatus.OVERPAID
+                totalPaid >= p.targetAmount -> PaymentStatus.PAID
+                else -> PaymentStatus.PARTIAL
+            }
+            ResidentPaymentSummary(
+                resident = resident,
+                participant = p,
+                totalPaid = totalPaid,
+                paymentStatus = status,
+                recentTransactions = txList.sortedByDescending { it.paidAtDeviceEpochMs }.take(3)
+            )
+        }.sortedBy { it.resident.name }
+
+        cachedSummaries[activityId] = result
+        return result
+    }
+
+    /** Hitung rekapan satu kegiatan — menggunakan batch getAllResidentSummaries */
     suspend fun getActivitySummary(activity: IuranActivity): ActivitySummary = runCatching {
-        val participants = getParticipants(activity.id)
+        val resSummaries = getAllResidentSummaries(activity.id)
         var totalCollected = 0L
         var totalTarget = 0L
         var countPaid = 0; var countPartial = 0; var countUnpaid = 0; var countOverpaid = 0
-        for (p in participants) {
-            val paid = getResidentTotalPaid(activity.id, p.residentId)
-            totalCollected += paid.coerceAtLeast(0L)
-            totalTarget += p.targetAmount
-            when {
-                paid <= 0L -> countUnpaid++
-                paid > p.targetAmount -> countOverpaid++
-                paid >= p.targetAmount -> countPaid++
-                else -> countPartial++
+        for (s in resSummaries) {
+            totalCollected += s.totalPaid.coerceAtLeast(0L)
+            totalTarget += s.participant.targetAmount
+            when (s.paymentStatus) {
+                PaymentStatus.UNPAID -> countUnpaid++
+                PaymentStatus.OVERPAID -> countOverpaid++
+                PaymentStatus.PAID -> countPaid++
+                PaymentStatus.PARTIAL -> countPartial++
             }
         }
         ActivitySummary(activity, totalCollected, totalTarget, countPaid, countPartial, countUnpaid, countOverpaid)
