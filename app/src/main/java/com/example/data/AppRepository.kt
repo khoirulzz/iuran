@@ -25,31 +25,33 @@ class AppRepository(
 
     // ===================== OFFLINE-FIRST HELPERS =====================
     private suspend fun Query.getOfflineFirst(): QuerySnapshot {
+        val q = this
         return try {
-            val cached = this.get(Source.CACHE).await()
+            val cached = q.get(Source.CACHE).await()
             if (!cached.isEmpty) cached else {
-                withTimeout(2500) { this.get(Source.DEFAULT).await() }
+                withTimeout(2500) { q.get(Source.DEFAULT).await() }
             }
         } catch (e: Exception) {
             try {
-                this.get(Source.CACHE).await()
+                q.get(Source.CACHE).await()
             } catch (e2: Exception) {
-                this.get(Source.DEFAULT).await()
+                q.get(Source.DEFAULT).await()
             }
         }
     }
 
     private suspend fun DocumentReference.getOfflineFirst(): DocumentSnapshot {
+        val docRef = this
         return try {
-            val cached = this.get(Source.CACHE).await()
+            val cached = docRef.get(Source.CACHE).await()
             if (cached.exists()) cached else {
-                withTimeout(2500) { this.get(Source.DEFAULT).await() }
+                withTimeout(2500) { docRef.get(Source.DEFAULT).await() }
             }
         } catch (e: Exception) {
             try {
-                this.get(Source.CACHE).await()
+                docRef.get(Source.CACHE).await()
             } catch (e2: Exception) {
-                this.get(Source.DEFAULT).await()
+                docRef.get(Source.DEFAULT).await()
             }
         }
     }
@@ -63,8 +65,8 @@ class AppRepository(
         }
     }
 
-    private suspend fun DocumentReference.updateOfflineFirst(vararg fields: Any) {
-        val task = this.update(*fields)
+    private suspend fun DocumentReference.updateOfflineFirst(field: String, value: Any, vararg moreFields: Any) {
+        val task = this.update(field, value, *moreFields)
         try {
             withTimeout(1500) { task.await() }
         } catch (e: Exception) {

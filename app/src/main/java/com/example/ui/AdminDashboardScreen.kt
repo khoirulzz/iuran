@@ -123,7 +123,19 @@ fun AdminDashboardScreen(
         }
     ) { paddingValues ->
         when (selectedTab) {
-            0 -> AdminDashboardContent(activities, isLoading, navController, paddingValues, onTabChange = { selectedTab = it })
+            0 -> AdminDashboardContent(
+                activities = activities,
+                isLoading = isLoading,
+                navController = navController,
+                paddingValues = paddingValues,
+                onTabChange = { selectedTab = it },
+                onSyncClick = {
+                    coroutineScope.launch {
+                        val result = repository.syncFromServer()
+                        activities = repository.getActivities()
+                    }
+                }
+            )
             1 -> AdminActivitiesTab(activities, navController, paddingValues)
             2 -> AdminResidentsScreen(navController, repository, paddingValues)
             3 -> AdminReportsScreen(navController, repository, paddingValues)
@@ -142,7 +154,8 @@ private fun AdminDashboardContent(
     isLoading: Boolean,
     navController: NavController,
     paddingValues: PaddingValues,
-    onTabChange: (Int) -> Unit
+    onTabChange: (Int) -> Unit,
+    onSyncClick: () -> Unit = {}
 ) {
     val activeActivities = activities.filter { it.status == ActivityStatus.ACTIVE }
     val fmt = NumberFormat.getNumberInstance(Locale("id", "ID"))
@@ -194,12 +207,12 @@ private fun AdminDashboardContent(
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp, vertical = 12.dp)
                     .clickable {
-                        coroutineScope.launch {
-                            val result = repository.syncFromServer()
-                            val msg = result.getOrElse { "Sinkronisasi offline aktif · Data tersimpan lokal" }
-                            android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_LONG).show()
-                            activities = repository.getActivities()
-                        }
+                        onSyncClick()
+                        android.widget.Toast.makeText(
+                            context,
+                            "Memulai sinkronisasi data dari server...",
+                            android.widget.Toast.LENGTH_SHORT
+                        ).show()
                     },
                 shape = RoundedCornerShape(16.dp),
                 colors = CardDefaults.cardColors(containerColor = AppSurface),
