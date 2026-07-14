@@ -13,23 +13,12 @@ import com.example.data.SessionStore
 @Composable
 fun MainApp(sessionStore: SessionStore, repository: AppRepository) {
     val navController = rememberNavController()
-    // Gunakan null sebagai initial agar splash menunggu DataStore terbaca, bukan langsung ke login
-    val isLoggedIn = sessionStore.isLoggedIn.collectAsState(initial = null).value
-    val userRole = sessionStore.userRole.collectAsState(initial = null).value
-
-    // Selama DataStore belum terbaca (null), tetap di splash
-    val startDest = when {
-        isLoggedIn == null -> "splash" // Belum tahu status — tunggu
-        isLoggedIn && userRole == "ADMIN" -> "admin_dashboard"
-        isLoggedIn -> "officer_dashboard"
-        else -> "login"
-    }
 
     NavHost(navController = navController, startDestination = "splash") {
 
         // ==================== SPLASH ====================
         composable("splash") {
-            SplashScreen(navController = navController, nextRoute = startDest)
+            SplashScreen(navController = navController, sessionStore = sessionStore)
         }
 
         // ==================== LOGIN ====================

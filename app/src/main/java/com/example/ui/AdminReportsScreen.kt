@@ -39,23 +39,22 @@ fun AdminReportsScreen(
 
     val fmt = NumberFormat.getNumberInstance(Locale("id", "ID"))
 
+    var residentSummariesMap by remember { mutableStateOf<Map<String, List<ResidentPaymentSummary>>>(emptyMap()) }
+
     LaunchedEffect(Unit) {
         isLoading = true
         val acts = repository.getActivities()
         activities = acts.filter { it.status == ActivityStatus.ACTIVE || it.status == ActivityStatus.COMPLETED }
-        // Pastikan warga sudah ter-enroll sebelum menghitung summary
-        for (a in activities) {
-            repository.ensureAllResidentsEnrolled(a.id)
-        }
         val sumList = mutableListOf<ActivitySummary>()
+        val resMap = mutableMapOf<String, List<ResidentPaymentSummary>>()
         for (a in activities) {
             sumList.add(repository.getActivitySummary(a))
+            resMap[a.id] = repository.getAllResidentSummaries(a.id)
         }
         summaries = sumList
+        residentSummariesMap = resMap
         isLoading = false
     }
-
-    var residentSummariesMap by remember { mutableStateOf<Map<String, List<ResidentPaymentSummary>>>(emptyMap()) }
 
     LaunchedEffect(selectedActivityId) {
         if (selectedActivityId != null) {
@@ -190,7 +189,7 @@ fun AdminReportsScreen(
                         else summary.activity.id
                     },
                     transactions = if (selectedActivityId == summary.activity.id) transactions else emptyList(),
-                    residentSummaries = if (selectedActivityId == summary.activity.id) (residentSummariesMap[summary.activity.id] ?: emptyList()) else emptyList()
+                    residentSummaries = residentSummariesMap[summary.activity.id] ?: emptyList()
                 )
                 Spacer(Modifier.height(4.dp))
             }
@@ -251,34 +250,79 @@ private fun ActivityReportCard(
                 )
             }
 
-            if (isSelected && transactions.isNotEmpty()) {
-                Spacer(Modifier.height(12.dp))
-                Divider(color = BorderColor)
-                Spacer(Modifier.height(12.dp))
-                Text("Breakdown Metode Pembayaran", style = MaterialTheme.typography.labelMedium, color = TextSecondary, fontWeight = FontWeight.SemiBold)
-                Spacer(Modifier.height(8.dp))
-                val payTx = transactions.filter { it.type == TransactionType.PAYMENT }
-                val byCash = payTx.filter { it.paymentMethod == PaymentMethod.CASH }.sumOf { it.amount }
-                val byTransfer = payTx.filter { it.paymentMethod == PaymentMethod.TRANSFER }.sumOf { it.amount }
-                val byQris = payTx.filter { it.paymentMethod == PaymentMethod.QRIS }.sumOf { it.amount }
-                val byOther = payTx.filter { it.paymentMethod == PaymentMethod.OTHER }.sumOf { it.amount }
-                val reversals = transactions.filter { it.type == TransactionType.REVERSAL }.sumOf { it.amount }
+            if (isSelected) {
+                if (transactions.isNotEmpty()) {
+                    Spacer(Modifier.height(12.dp))
+                    Divider(color = BorderColor)
+                    Spacer(Modifier.height(12.dp))
+                    Text("Breakdown Metode Pembayaran", style = MaterialTheme.typography.labelMedium, color = TextSecondary, fontWeight = FontWeight.SemiBold)
+                    Spacer(Modifier.height(8.dp))
+                    val payTx = transactions.filter { it.type == TransactionType.PAYMENT }
+                    val byCash = payTx.filter { it.paymentMethod == PaymentMethod.CASH }.sumOf { it.amount }
+                    val byTransfer = payTx.filter { it.paymentMethod == PaymentMethod.TRANSFER }.sumOf { it.amount }
+                    val byQris = payTx.filter { it.paymentMethod == PaymentMethod.QRIS }.sumOf { it.amount }
+                    val byOther = payTx.filter { it.paymentMethod == PaymentMethod.OTHER }.sumOf { it.amount }
+                    val reversals = transactions.filter { it.type == TransactionType.REVERSAL }.sumOf { it.amount }
 
-                listOf(
-                    Triple("💵 Tunai", byCash, AccentInfo),
-                    Triple("🏦 Transfer", byTransfer, AdminPrimary),
-                    Triple("📱 QRIS", byQris, AccentPurple),
-                    Triple("📦 Lainnya", byOther, AccentAmber),
-                    Triple("↩ Reversal", reversals, AccentDanger)
-                ).filter { it.second != 0L }.forEach { (label, amount, color) ->
-                    Row(Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
-                        Text(label, style = MaterialTheme.typography.bodySmall, color = TextSecondary, modifier = Modifier.weight(1f))
-                        Text(
-                            "Rp ${fmt.format(amount)}",
-                            style = MaterialTheme.typography.bodySmall,
-                            fontWeight = FontWeight.SemiBold,
-                            color = color
-                        )
+                    listOf(
+                        Triple("💵 Tunai", byCash, AccentInfo),
+                        Triple("🏦 Transfer", byTransfer, AdminPrimary),
+                        Triple("📱 QRIS", byQris, AccentPurple),
+                        Triple("📦 Lainnya", byOther, AccentAmber),
+                        Triple("↩ Reversal", reversals, AccentDanger)
+                    ).filter { it.second != 0L }.forEach { (label, amount, color) ->
+                        Row(Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
+                            Text(label, style = MaterialTheme.typography.bodySmall, color = TextSecondary, modifier = Modifier.weight(1f))
+                            Text(
+                                "Rp ${fmt.format(amount)}",
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.SemiBold,
+                                color = color
+                            )
+                        }
+                    }
+                }
+
+                Spacer(Modifier.height(14.dp))
+                Divider(color = BorderColor)
+                Spacer(Modifier.height(10.dp))
+                Text("Daftar Status Pembayaran Warga", style = MaterialTheme.typography.labelMedium, color = TextPrimary, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(8.dp))
+
+                // Header Tabel
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Color(0xFFE2E8F0), RoundedCornerShape(6.dp))
+                        .padding(horizontal = 8.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("No", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, modifier = Modifier.width(28.dp))
+                    Text("Nama", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                    Text("Pembayaran", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, modifier = Modifier.width(95.dp))
+                    Text("Status", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, modifier = Modifier.width(55.dp))
+                }
+
+                if (residentSummaries.isEmpty()) {
+                    Text("- Belum ada data warga -", style = MaterialTheme.typography.bodySmall, color = TextSecondary, modifier = Modifier.padding(vertical = 8.dp))
+                } else {
+                    residentSummaries.forEachIndexed { idx, resSummary ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 8.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("${idx + 1}", style = MaterialTheme.typography.bodySmall, modifier = Modifier.width(28.dp))
+                            Text(resSummary.resident.name.uppercase(), style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
+                            Text("Rp ${fmt.format(resSummary.totalPaid)}", style = MaterialTheme.typography.bodySmall, modifier = Modifier.width(95.dp))
+                            val statusText = when (resSummary.paymentStatus) {
+                                PaymentStatus.PAID, PaymentStatus.OVERPAID -> "Lunas"
+                                else -> "Kurang"
+                            }
+                            val statusColor = if (statusText == "Lunas") OfficerPrimary else AccentDanger
+                            Text(statusText, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold, color = statusColor, modifier = Modifier.width(55.dp))
+                        }
                     }
                 }
             }

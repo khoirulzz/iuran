@@ -22,12 +22,18 @@ import com.example.ui.theme.AppBackground
 import com.example.ui.theme.TextSecondary
 import kotlinx.coroutines.delay
 
+import com.example.data.SessionStore
+
 @Composable
-fun SplashScreen(navController: NavController, nextRoute: String) {
-    LaunchedEffect(nextRoute) {
-        // Jangan navigasi jika DataStore belum terbaca (nextRoute masih "splash")
-        if (nextRoute == "splash") return@LaunchedEffect
+fun SplashScreen(navController: NavController, sessionStore: SessionStore) {
+    LaunchedEffect(Unit) {
         delay(1200)
+        val session = sessionStore.getSessionSnapshot()
+        val nextRoute = if (session.isLoggedIn) {
+            if (session.userRole == "ADMIN") "admin_dashboard" else "officer_dashboard"
+        } else {
+            "login"
+        }
         navController.navigate(nextRoute) {
             popUpTo("splash") { inclusive = true }
         }

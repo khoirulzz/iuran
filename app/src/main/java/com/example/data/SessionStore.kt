@@ -46,6 +46,16 @@ class SessionStore(private val context: Context) {
         return reserved
     }
 
+    suspend fun getSessionSnapshot(): SessionSnapshot {
+        val prefs = context.dataStore.data.first()
+        return SessionSnapshot(
+            isLoggedIn = prefs[IS_LOGGED_IN] ?: false,
+            userRole = prefs[USER_ROLE],
+            userId = prefs[USER_ID],
+            userName = prefs[USER_NAME]
+        )
+    }
+
     suspend fun saveSession(role: String, id: String, name: String) {
         context.dataStore.edit { prefs ->
             prefs[IS_LOGGED_IN] = true
@@ -64,3 +74,11 @@ class SessionStore(private val context: Context) {
         }
     }
 }
+
+data class SessionSnapshot(
+    val isLoggedIn: Boolean,
+    val userRole: String?,
+    val userId: String?,
+    val userName: String?
+)
+

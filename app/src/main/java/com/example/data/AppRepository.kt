@@ -389,6 +389,7 @@ class AppRepository(
             ))
         }
         batch.commitOfflineFirst()
+        invalidateActivityCache(activityId)
     }
 
     // ===================== TRANSACTIONS =====================
@@ -575,15 +576,19 @@ class AppRepository(
 
     /**
      * Ambil semua ResidentPaymentSummary untuk satu kegiatan dengan SATU query transaksi saja.
-     * Ini jauh lebih cepat dari memanggil getResidentSummary satu per satu (N query menjadi 1).
+     * Dijamin SELURUH warga masuk ke dalam laporan (baik sudah bayar maupun belum bayar / 0 rupiah).
      */
     suspend fun getAllResidentSummaries(activityId: String): List<ResidentPaymentSummary> {
         cachedSummaries[activityId]?.let { return it }
 
-        val participants = getParticipants(activityId)
-        if (participants.isEmpty()) return emptyList()
+        ensureAllResidentsEnrolled(activityId)
 
-        val residents = getResidents().associateBy { it.id }
+        val activity = getActivityById(activityId)
+        val defaultTarget = activity?.defaultTargetAmount ?: 0L
+
+        val participants = getParticipants(activityId).associateBy { it.residentId }
+        val allResidents = getResidents()
+        if (allResidents.isEmpty()) return emptyList()
 
         // SATU query untuk semua transaksi kegiatan ini
         val allTx = runCatching {
@@ -596,9 +601,17 @@ class AppRepository(
 
         val txByResident = allTx.groupBy { it.residentId }
 
-        val result = participants.mapNotNull { p ->
-            val resident = residents[p.residentId] ?: return@mapNotNull null
-            val txList = txByResident[p.residentId] ?: emptyList()
+        val result = allResidents.map { resident ->
+            val p = participants[resident.id] ?: ActivityParticipant(
+                id = "${activityId}_${resident.id}",
+                activityId = activityId,
+                residentId = resident.id,
+                targetAmount = defaultTarget,
+                isIncluded = true,
+                createdAt = System.currentTimeMillis(),
+                updatedAt = System.currentTimeMillis()
+            )
+            val txList = txByResident[resident.id] ?: emptyList()
             val totalPaid = txList.sumOf { it.amount }
             val status = when {
                 totalPaid <= 0L -> PaymentStatus.UNPAID
