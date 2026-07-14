@@ -36,6 +36,7 @@ fun AdminTransactionsScreen(
     var isLoading by remember { mutableStateOf(true) }
     var selectedTx by remember { mutableStateOf<PaymentTransaction?>(null) }
     var showReversalDialog by remember { mutableStateOf(false) }
+    var editingTx by remember { mutableStateOf<PaymentTransaction?>(null) }
     var successMsg by remember { mutableStateOf<String?>(null) }
 
     val fmt = NumberFormat.getNumberInstance(Locale("id", "ID"))
@@ -158,7 +159,6 @@ fun AdminTransactionsScreen(
         )
     }
 
-    var editingTx by remember { mutableStateOf<PaymentTransaction?>(null) }
     if (editingTx != null) {
         EditTransactionDialog(
             tx = editingTx!!,
