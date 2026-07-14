@@ -26,33 +26,31 @@ class AppRepository(
     // ===================== OFFLINE-FIRST HELPERS =====================
     private suspend fun Query.getOfflineFirst(): QuerySnapshot {
         val q = this
+        // 1. Selalu coba cache dulu
+        val cached = try { q.get(Source.CACHE).await() } catch (e: Exception) { null }
+        if (cached != null && !cached.isEmpty) return cached
+
+        // 2. Cache kosong/tidak ada — coba server dengan timeout singkat
         return try {
-            val cached = q.get(Source.CACHE).await()
-            if (!cached.isEmpty) cached else {
-                withTimeout(2500) { q.get(Source.DEFAULT).await() }
-            }
+            withTimeout(3000) { q.get(Source.SERVER).await() }
         } catch (e: Exception) {
-            try {
-                q.get(Source.CACHE).await()
-            } catch (e2: Exception) {
-                q.get(Source.DEFAULT).await()
-            }
+            // 3. Offline atau timeout — kembalikan cache (meski kosong) daripada crash
+            cached ?: try { q.get(Source.CACHE).await() } catch (e2: Exception) { q.get(Source.DEFAULT).await() }
         }
     }
 
     private suspend fun DocumentReference.getOfflineFirst(): DocumentSnapshot {
         val docRef = this
+        // 1. Coba cache dulu
+        val cached = try { docRef.get(Source.CACHE).await() } catch (e: Exception) { null }
+        if (cached != null && cached.exists()) return cached
+
+        // 2. Cache tidak ada/dokumen tidak exist — coba server
         return try {
-            val cached = docRef.get(Source.CACHE).await()
-            if (cached.exists()) cached else {
-                withTimeout(2500) { docRef.get(Source.DEFAULT).await() }
-            }
+            withTimeout(3000) { docRef.get(Source.SERVER).await() }
         } catch (e: Exception) {
-            try {
-                docRef.get(Source.CACHE).await()
-            } catch (e2: Exception) {
-                docRef.get(Source.DEFAULT).await()
-            }
+            // 3. Offline — kembalikan cache (meski tidak exist) daripada crash
+            cached ?: try { docRef.get(Source.CACHE).await() } catch (e2: Exception) { docRef.get(Source.DEFAULT).await() }
         }
     }
 
