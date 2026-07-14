@@ -43,6 +43,8 @@ fun ActivityDetailScreen(
     LaunchedEffect(activityId) {
         isLoading = true
         activity = repository.getActivityById(activityId)
+        // Pastikan semua warga aktif terdaftar terlebih dahulu (hanya sekali)
+        repository.ensureAllResidentsEnrolled(activityId)
         val participants = repository.getParticipants(activityId)
         val list = mutableListOf<ResidentPaymentSummary>()
         for (p in participants) {

@@ -46,6 +46,7 @@ fun OfficerResidentsScreen(
 
     LaunchedEffect(activityId) {
         isLoading = true
+        repository.ensureAllResidentsEnrolled(activityId)
         val participants = repository.getParticipants(activityId)
         val list = mutableListOf<ResidentPaymentSummary>()
         for (p in participants) {

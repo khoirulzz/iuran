@@ -313,35 +313,21 @@ class AppRepository(
         val snapshot = firestore.collection("activity_participants")
             .whereEqualTo("activityId", activityId)
             .getOfflineFirst()
-        val docs = snapshot.documents.mapNotNull { doc ->
+        snapshot.documents.mapNotNull { doc ->
             doc.toObject(ActivityParticipant::class.java)?.copy(id = doc.id)
         }.filter { it.isIncluded }
-
-        val activity = getActivityById(activityId)
-        val residents = getResidents(activeOnly = true)
-        val existingResidentIds = docs.map { it.residentId }.toSet()
-        val missingResidents = residents.filter { it.id !in existingResidentIds }
-
-        val newDocs = if (missingResidents.isNotEmpty() && activity != null) {
-            val missingIds = missingResidents.map { it.id }
-            upsertParticipants(activityId, missingIds, activity.defaultTargetAmount)
-            missingResidents.map { res ->
-                ActivityParticipant(
-                    id = "${activityId}_${res.id}",
-                    activityId = activityId,
-                    residentId = res.id,
-                    targetAmount = activity.defaultTargetAmount,
-                    isIncluded = true,
-                    createdAt = System.currentTimeMillis(),
-                    updatedAt = System.currentTimeMillis()
-                )
-            }
-        } else {
-            emptyList()
-        }
-
-        (docs + newDocs)
     }.getOrDefault(emptyList())
+
+    /** Pastikan seluruh warga aktif terdaftar di kegiatan — panggil sekali saat membuka kegiatan */
+    suspend fun ensureAllResidentsEnrolled(activityId: String) = runCatching {
+        val activity = getActivityById(activityId) ?: return@runCatching
+        val existingIds = getParticipants(activityId).map { it.residentId }.toSet()
+        val residents = getResidents(activeOnly = true)
+        val missingIds = residents.map { it.id }.filter { it !in existingIds }
+        if (missingIds.isNotEmpty()) {
+            upsertParticipants(activityId, missingIds, activity.defaultTargetAmount)
+        }
+    }
 
     suspend fun saveParticipant(participant: ActivityParticipant): Result<String> = runCatching {
         val now = System.currentTimeMillis()

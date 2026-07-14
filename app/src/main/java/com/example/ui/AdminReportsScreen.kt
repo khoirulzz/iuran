@@ -43,6 +43,10 @@ fun AdminReportsScreen(
         isLoading = true
         val acts = repository.getActivities()
         activities = acts.filter { it.status == ActivityStatus.ACTIVE || it.status == ActivityStatus.COMPLETED }
+        // Pastikan warga sudah ter-enroll sebelum menghitung summary
+        for (a in activities) {
+            repository.ensureAllResidentsEnrolled(a.id)
+        }
         val sumList = mutableListOf<ActivitySummary>()
         for (a in activities) {
             sumList.add(repository.getActivitySummary(a))

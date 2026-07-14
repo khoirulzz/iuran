@@ -24,8 +24,10 @@ import kotlinx.coroutines.delay
 
 @Composable
 fun SplashScreen(navController: NavController, nextRoute: String) {
-    LaunchedEffect(Unit) {
-        delay(1800)
+    LaunchedEffect(nextRoute) {
+        // Jangan navigasi jika DataStore belum terbaca (nextRoute masih "splash")
+        if (nextRoute == "splash") return@LaunchedEffect
+        delay(1200)
         navController.navigate(nextRoute) {
             popUpTo("splash") { inclusive = true }
         }
