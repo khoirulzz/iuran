@@ -335,7 +335,7 @@ private fun ReversalDialog(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun EditTransactionDialog(
+fun EditTransactionDialog(
     tx: PaymentTransaction,
     fmt: NumberFormat,
     onDismiss: () -> Unit,

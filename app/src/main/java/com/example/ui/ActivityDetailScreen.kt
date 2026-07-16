@@ -150,7 +150,7 @@ fun ActivityDetailScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 16.dp, vertical = 4.dp)
-                            .clickable { navController.navigate("payment/$activityId/${summary.resident.id}") },
+                            .clickable { navController.navigate("officer_resident_detail/$activityId/${summary.resident.id}") },
                         shape = RoundedCornerShape(14.dp),
                         colors = CardDefaults.cardColors(containerColor = AppSurface),
                         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)

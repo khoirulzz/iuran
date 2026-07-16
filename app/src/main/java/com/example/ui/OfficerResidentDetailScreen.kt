@@ -1,6 +1,7 @@
 package com.example.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -20,6 +21,7 @@ import androidx.navigation.NavController
 import com.example.data.AppRepository
 import com.example.domain.*
 import com.example.ui.theme.*
+import kotlinx.coroutines.launch
 import java.text.NumberFormat
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -38,25 +40,34 @@ fun OfficerResidentDetailScreen(
     var transactions by remember { mutableStateOf<List<PaymentTransaction>>(emptyList()) }
     var activityName by remember { mutableStateOf("") }
     var isLoading by remember { mutableStateOf(true) }
+    var editingTx by remember { mutableStateOf<PaymentTransaction?>(null) }
+    var successMsg by remember { mutableStateOf<String?>(null) }
+    val coroutineScope = rememberCoroutineScope()
 
     val fmt = NumberFormat.getNumberInstance(Locale("id", "ID"))
     val sdf = SimpleDateFormat("dd MMM yyyy, HH:mm", Locale("id", "ID")).apply {
         timeZone = TimeZone.getTimeZone("Asia/Jakarta")
     }
 
-    LaunchedEffect(activityId, residentId) {
-        isLoading = true
-        val activity = repository.getActivityById(activityId)
-        activityName = activity?.name ?: ""
+    fun loadData() {
+        coroutineScope.launch {
+            isLoading = true
+            val activity = repository.getActivityById(activityId)
+            activityName = activity?.name ?: ""
 
-        val participant = repository.getParticipants(activityId)
-            .firstOrNull { it.residentId == residentId }
+            val participant = repository.getParticipants(activityId)
+                .firstOrNull { it.residentId == residentId }
 
-        transactions = repository.getTransactions(activityId, residentId)
-        if (participant != null) {
-            summary = repository.getResidentSummary(activityId, participant)
+            transactions = repository.getTransactions(activityId, residentId)
+            if (participant != null) {
+                summary = repository.getResidentSummary(activityId, participant)
+            }
+            isLoading = false
         }
-        isLoading = false
+    }
+
+    LaunchedEffect(activityId, residentId) {
+        loadData()
     }
 
     Scaffold(
@@ -233,6 +244,22 @@ fun OfficerResidentDetailScreen(
                     }
                 }
 
+                if (successMsg != null) {
+                    item {
+                        Card(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+                            colors = CardDefaults.cardColors(containerColor = Color(0xFFDCFCE7)),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.CheckCircle, null, tint = OfficerPrimary)
+                                Spacer(Modifier.width(8.dp))
+                                Text(successMsg!!, color = OfficerDark, style = MaterialTheme.typography.bodyMedium)
+                            }
+                        }
+                    }
+                }
+
                 // Riwayat Transaksi
                 item {
                     Row(
@@ -262,7 +289,14 @@ fun OfficerResidentDetailScreen(
                     }
                 } else {
                     items(transactions) { tx ->
-                        ResidentTransactionItem(tx, fmt, sdf)
+                        ResidentTransactionItem(
+                            tx = tx,
+                            fmt = fmt,
+                            sdf = sdf,
+                            onEdit = if (tx.type == TransactionType.PAYMENT) {
+                                { editingTx = tx }
+                            } else null
+                        )
                     }
                 }
 
@@ -270,19 +304,43 @@ fun OfficerResidentDetailScreen(
             }
         }
     }
+
+    if (editingTx != null) {
+        EditTransactionDialog(
+            tx = editingTx!!,
+            fmt = fmt,
+            onDismiss = { editingTx = null },
+            onSave = { newAmount, newMethod, newNote ->
+                coroutineScope.launch {
+                    repository.editTransaction(
+                        transactionId = editingTx!!.transactionId,
+                        newAmount = newAmount,
+                        newMethod = newMethod,
+                        newNote = newNote,
+                        activityId = activityId
+                    )
+                    successMsg = "Transaksi berhasil diperbarui."
+                    editingTx = null
+                    loadData()
+                }
+            }
+        )
+    }
 }
 
 @Composable
 private fun ResidentTransactionItem(
     tx: PaymentTransaction,
     fmt: NumberFormat,
-    sdf: SimpleDateFormat
+    sdf: SimpleDateFormat,
+    onEdit: (() -> Unit)? = null
 ) {
     val isReversal = tx.type == TransactionType.REVERSAL
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 3.dp),
+            .padding(horizontal = 16.dp, vertical = 3.dp)
+            .let { if (onEdit != null) it.clickable { onEdit() } else it },
         shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(
             containerColor = if (isReversal) Color(0xFFFFF7F7) else AppSurface
@@ -330,6 +388,17 @@ private fun ResidentTransactionItem(
                 fontWeight = FontWeight.Bold,
                 color = if (isReversal) AccentDanger else OfficerPrimary
             )
+            if (onEdit != null) {
+                Spacer(Modifier.width(8.dp))
+                IconButton(onClick = onEdit, modifier = Modifier.size(32.dp)) {
+                    Icon(
+                        Icons.Default.Edit,
+                        contentDescription = "Edit Pembayaran",
+                        tint = OfficerPrimary,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
         }
     }
 }
