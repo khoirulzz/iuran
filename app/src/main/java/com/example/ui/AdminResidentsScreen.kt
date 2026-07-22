@@ -42,6 +42,7 @@ fun AdminResidentsScreen(
     var residents by remember { mutableStateOf<List<Resident>>(emptyList()) }
     var searchQuery by remember { mutableStateOf("") }
     var showInactive by remember { mutableStateOf(false) }
+    var selectedBlock by remember { mutableStateOf("Semua") }
     var isLoading by remember { mutableStateOf(true) }
     var showFormDialog by remember { mutableStateOf(false) }
     var editingResident by remember { mutableStateOf<Resident?>(null) }
@@ -112,6 +113,14 @@ fun AdminResidentsScreen(
 
     LaunchedEffect(Unit) { loadResidents() }
 
+    val availableBlocks = remember(residents) {
+        listOf("Semua") + residents
+            .map { it.block.trim() }
+            .filter { it.isNotEmpty() }
+            .distinct()
+            .sortedWith(String.CASE_INSENSITIVE_ORDER)
+    }
+
     val filtered = residents.filter { r ->
         val q = searchQuery.lowercase()
         val matchSearch = q.isEmpty() ||
@@ -120,7 +129,8 @@ fun AdminResidentsScreen(
             r.block.lowercase().contains(q) ||
             r.address.lowercase().contains(q)
         val matchActive = showInactive || r.isActive
-        matchSearch && matchActive
+        val matchBlock = selectedBlock == "Semua" || r.block.trim().equals(selectedBlock, ignoreCase = true)
+        matchSearch && matchActive && matchBlock
     }.sortedBy { it.name.uppercase() }
 
     Box(
@@ -176,6 +186,25 @@ fun AdminResidentsScreen(
                                 selectedLabelColor = AdminPrimary
                             )
                         )
+                    }
+                    if (availableBlocks.size > 1) {
+                        Spacer(Modifier.height(6.dp))
+                        androidx.compose.foundation.lazy.LazyRow(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            items(availableBlocks) { block ->
+                                FilterChip(
+                                    selected = selectedBlock.equals(block, ignoreCase = true),
+                                    onClick = { selectedBlock = block },
+                                    label = { Text(if (block == "Semua") "Semua RT/Blok" else block, style = MaterialTheme.typography.labelSmall) },
+                                    colors = FilterChipDefaults.filterChipColors(
+                                        selectedContainerColor = AdminLight,
+                                        selectedLabelColor = AdminPrimary
+                                    )
+                                )
+                            }
+                        }
                     }
                     Spacer(Modifier.height(8.dp))
                     Row(

@@ -37,6 +37,8 @@ fun ActivityDetailScreen(
     var summaries by remember { mutableStateOf<List<ResidentPaymentSummary>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
     var searchQuery by remember { mutableStateOf("") }
+    var filterStatus by remember { mutableStateOf(ResidentFilterStatus.ALL) }
+    var selectedBlock by remember { mutableStateOf("Semua") }
 
     val fmt = NumberFormat.getNumberInstance(Locale("id", "ID"))
 
@@ -49,12 +51,29 @@ fun ActivityDetailScreen(
         isLoading = false
     }
 
+    val availableBlocks = remember(summaries) {
+        listOf("Semua") + summaries
+            .map { it.resident.block.trim() }
+            .filter { it.isNotEmpty() }
+            .distinct()
+            .sortedWith(String.CASE_INSENSITIVE_ORDER)
+    }
+
     val filtered = summaries.filter { s ->
         val q = searchQuery.lowercase()
-        q.isEmpty() ||
+        val matchSearch = q.isEmpty() ||
             s.resident.name.lowercase().contains(q) ||
             s.resident.houseNumber.lowercase().contains(q) ||
             s.resident.block.lowercase().contains(q)
+        val matchStatus = when (filterStatus) {
+            ResidentFilterStatus.ALL -> true
+            ResidentFilterStatus.UNPAID -> s.paymentStatus == PaymentStatus.UNPAID
+            ResidentFilterStatus.PARTIAL -> s.paymentStatus == PaymentStatus.PARTIAL
+            ResidentFilterStatus.PAID -> s.paymentStatus == PaymentStatus.PAID
+            ResidentFilterStatus.OVERPAID -> s.paymentStatus == PaymentStatus.OVERPAID
+        }
+        val matchBlock = selectedBlock == "Semua" || s.resident.block.trim().equals(selectedBlock, ignoreCase = true)
+        matchSearch && matchStatus && matchBlock
     }.sortedBy { it.resident.name.uppercase() }
 
     var showDeleteDialog by remember { mutableStateOf(false) }
@@ -99,12 +118,12 @@ fun ActivityDetailScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .background(AppSurface)
-                        .padding(16.dp)
+                        .padding(horizontal = 16.dp, vertical = 12.dp)
                 ) {
                     OutlinedTextField(
                         value = searchQuery,
                         onValueChange = { searchQuery = it },
-                        placeholder = { Text("Cari nama warga…") },
+                        placeholder = { Text("Cari nama, no. rumah, blok…") },
                         leadingIcon = { Icon(Icons.Default.Search, null, tint = AdminPrimary) },
                         trailingIcon = {
                             if (searchQuery.isNotEmpty()) {
@@ -118,6 +137,51 @@ fun ActivityDetailScreen(
                         singleLine = true,
                         colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = AdminPrimary, unfocusedBorderColor = BorderColor)
                     )
+                    Spacer(Modifier.height(8.dp))
+                    // Filter Status Pembayaran
+                    androidx.compose.foundation.lazy.LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        items(
+                            listOf(
+                                ResidentFilterStatus.ALL to "Semua",
+                                ResidentFilterStatus.UNPAID to "Belum Bayar",
+                                ResidentFilterStatus.PARTIAL to "Mencicil",
+                                ResidentFilterStatus.PAID to "Lunas"
+                            )
+                        ) { (f, label) ->
+                            FilterChip(
+                                selected = filterStatus == f,
+                                onClick = { filterStatus = f },
+                                label = { Text(label, style = MaterialTheme.typography.labelSmall) },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = AdminLight,
+                                    selectedLabelColor = AdminPrimary
+                                )
+                            )
+                        }
+                    }
+                    // Filter RT / Blok Warga
+                    if (availableBlocks.size > 1) {
+                        Spacer(Modifier.height(6.dp))
+                        androidx.compose.foundation.lazy.LazyRow(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            items(availableBlocks) { block ->
+                                FilterChip(
+                                    selected = selectedBlock.equals(block, ignoreCase = true),
+                                    onClick = { selectedBlock = block },
+                                    label = { Text(if (block == "Semua") "Semua RT/Blok" else block, style = MaterialTheme.typography.labelSmall) },
+                                    colors = FilterChipDefaults.filterChipColors(
+                                        selectedContainerColor = AdminLight,
+                                        selectedLabelColor = AdminPrimary
+                                    )
+                                )
+                            }
+                        }
+                    }
                 }
                 Divider(color = BorderColor)
             }
